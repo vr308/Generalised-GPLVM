@@ -16,15 +16,15 @@ class Encoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.mu = torch.nn.Parameter(float_tensor(np.random.normal(size=(n, q))))
-        self.sigma = torch.nn.Parameter(float_tensor(np.random.normal(size=(n, q))))
+        self.mu = torch.nn.Parameter(float_tensor(np.random.normal(size=(2, 2))))
+        self.sigma = torch.nn.Parameter(float_tensor(np.random.normal(size=(2, 2))))
         self.uuid = str(uuid4())
-        self.nfs = [dist.transforms.Planar(2) for f in range(20)]
+        self.nfs = [dist.transforms.Radial(4) for f in range(20)]
         self._register()
         self.update()
 
     def update(self):
-        self.base_dist = dist.Normal(torch.tanh(self.mu), torch.tanh(self.sigma) + 1)
+        self.base_dist = dist.Normal(torch.tanh(self.mu.reshape(4)), torch.tanh(self.sigma.reshape(4)) + 1)
         self.nf_dist = dist.TransformedDistribution(self.base_dist, self.nfs)
 
     def _register(self):
@@ -34,7 +34,8 @@ class Encoder(torch.nn.Module):
 
     def model(self, x = None, p_z = None):
         self._register()
-        pyro.sample('X', self.nf_dist)
+        X_unreshaped = pyro.sample('X_unreshaped', self.nf_dist)
+        pyro.sample('X', dist.Delta(X_unreshaped.reshape(2, 2)))
 
 if __name__ == '__main__':
 
@@ -109,7 +110,7 @@ if __name__ == '__main__':
 
     adam = pyro.optim.Adam({"lr": 0.05})
     svi = pyro.infer.SVI(model=model, guide=enc.model,
-                         optim=adam, loss=pyro.infer.Trace_ELBO(250, retain_graph=True))
+                         optim=adam, loss=pyro.infer.Trace_ELBO(5, retain_graph=True))
 
     steps = 1000; losses = np.zeros(steps)
     bar = trange(steps, leave=False)
