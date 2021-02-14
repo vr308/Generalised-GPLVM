@@ -1,56 +1,62 @@
 
-import pyro, torch
+'''
+Nnet + long flows example; Doesn't work
+'''
+
 import numpy as np
+from uuid import uuid4
+from tqdm import trange
+import pyro, torch
 import pyro.contrib.gp as gp
 import pyro.distributions as dist
-from tqdm import trange
-from uuid import uuid4
+from torch import nn
+from pyro.nn import PyroModule
 import matplotlib.pyplot as plt
-from utils.data import float_tensor
 
 plt.ion(); plt.style.use('ggplot')
 
-class Encoder(torch.nn.Module):
+class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.mu = torch.nn.Parameter(float_tensor(np.random.normal(size=(4,))))
-        self.sigma = torch.nn.Parameter(float_tensor(np.random.normal(size=(4,))))
+        self.q = 2
+        self.d = 2
+        self.nf = 30
         self.uuid = str(uuid4())
-        self.nfs = [dist.transforms.Radial(4) for f in range(20)]
+
+        dim = self.d * self.q
+        self.mu = nn.Parameter(torch.ones(dim).normal_().float())
+        self.sigma = nn.Parameter(torch.ones(dim).normal_().float())
+        self.flows = [dist.transforms.Radial(dim) for _ in range(self.nf)]
+
+        self.nnet = PyroModule[nn.Sequential](
+            PyroModule[nn.Linear](10, 10),
+            PyroModule[nn.ReLU](),
+            PyroModule[nn.Linear](10, 10),
+            PyroModule[nn.ReLU](),
+            PyroModule[nn.Linear](10, self.d),
+            PyroModule[nn.Tanh]()
+        )
         self.update()
 
     def update(self):
-        self.base_dist = dist.Normal(torch.tanh(self.mu), torch.tanh(self.sigma) + 1)
-        self.nf_dist = dist.TransformedDistribution(self.base_dist, self.nfs)
+        mu_flat = 3 * torch.tanh(self.mu)
+        sg_flat = 1 * torch.tanh(self.sigma) + 1
+
+        self.base_dist = dist.Normal(mu_flat, sg_flat)
+        self.flow_dist = dist.TransformedDistribution(
+            self.base_dist, self.flows)
 
     def _register(self):
         pyro.module(self.uuid + '_' + str('self'), self)
-        for f in range(len(self.nfs)):
-            pyro.module(self.uuid + '_' + str(f), self.nfs[f])
+        for f in range(self.nf):
+            pyro.module(self.uuid + '_' + str(f), self.flows[f])
 
-    def model(self, x = None, p_z = None):
+    def model(self):
         self._register()
-        X_unreshaped = pyro.sample('X_unreshaped', self.nf_dist)
-        pyro.sample('X', dist.Normal(X_unreshaped.reshape(2, 2), 0.0001))
-
-    def forward(self, X):
-        for i in range(len(self.nfs)):
-            X = self.nfs[i](X)
-        return X
-
-def mcmc(model):
-    nuts = pyro.infer.NUTS(model)
-    MCMC = pyro.infer.MCMC(
-            kernel=nuts,
-            num_samples=300,
-            warmup_steps=300,
-            num_chains=1)
-    MCMC.run()
-
-    X_mcmc = MCMC.get_samples()['X']
-    plt.scatter(X_mcmc[:, 0, 0], X_mcmc[:, 0, 1], alpha=0.1)
-    return X_mcmc
+        Z = pyro.sample('Z', self.flow_dist)
+        Z = Z.reshape(self.d, self.q)
+        pyro.sample('X', dist.Normal(self.nnet(Y) @ Z, 1e-2))
 
 if __name__ == '__main__':
 
@@ -58,55 +64,50 @@ if __name__ == '__main__':
     # Create Synthetic Data
 
     np.random.seed(42)
-    n = 2; q = 2; m = 1000
+    n = 250; q = 2; m = 10
 
     X = np.random.normal(size = (n, q))
     W = np.random.normal(size = (q, m))
-    Y = float_tensor(X @ W)
+    Y = torch.tensor(X @ W).float()
 
-    def model():
-        zeros = torch.zeros((n, q))
-        ones = torch.ones((n, q))
-        X = pyro.sample('X', dist.Normal(zeros, ones))
+    # def model():
+    #     zeros = torch.zeros((n, q))
+    #     ones = torch.ones((n, q))
+    #     X = pyro.sample('X', dist.Normal(zeros, ones))
 
-        zeros = float_tensor([0])
-        sigma = X @ X.T + torch.eye(n)*1e-3
-        sigma = torch.cat([sigma[None, ...]]*m, axis=0)
-        pyro.sample('Y', dist.MultivariateNormal(zeros, sigma), obs=Y.T)
+    #     zeros = torch.tensor([0])
+    #     sigma = X @ X.T + torch.eye(n)*1e-3
+    #     sigma = torch.cat([sigma[None, ...]]*m, axis=0)
+    #     pyro.sample('Y', dist.MultivariateNormal(zeros, sigma), obs=Y.T)
 
-    mcmc(model)
+    X_init = torch.tensor(np.random.normal(size = (n, q)))
+    kernel = gp.kernels.Linear(q)
+    kernel.variance = torch.ones(1)
 
-    '''
-    MCMC with pyro's GP implementation doesn't even generate the right
-    latent distribution, let alone VI.
-    '''
-
-    # X_init = float_tensor(np.random.normal(size = (n, q)))
-
-    # kernel = gp.kernels.Linear(q)
-    # kernel.variance = pyro.sample('variance', dist.Delta(torch.ones(2)))
-
-    # gpmodule = gp.models.GPRegression(X_init, Y.T, kernel, noise=torch.tensor(1e-6))
-    # gplvm = gp.models.GPLVM(gpmodule)
-
-    # mcmc(gplvm.model)
-
-    #########################################
-    # Variational Inferece
-
-    '''
-    Currently, VI doesn't work; doesn't recover the ring latent dists.
-    '''
+    gpmodule = gp.models.GPRegression(
+        X=X_init, y=Y.T,
+        kernel=kernel,
+        noise=torch.tensor(1e-3))
+    gplvm = gp.models.GPLVM(gpmodule)
 
     enc = Encoder()
+    svi = pyro.infer.SVI(
+        model=gplvm.model,
+        guide=enc.model,
+        optim=pyro.optim.Adam({"lr": 0.05}),
+        loss=pyro.infer.Trace_ELBO(5, retain_graph=True))
 
-    adam = pyro.optim.Adam({"lr": 0.05})
-    svi  = pyro.infer.SVI(model=model, guide=enc.model, optim=adam,
-                loss=pyro.infer.Trace_ELBO(5, retain_graph=True))
-
-    steps = 10000; losses = np.zeros(steps)
+    steps = 10000; losses = np.zeros(steps); minimum = 10000
     bar = trange(steps, leave=False)
     for step in bar:
         enc.update()
         losses[step] = svi.step()
         bar.set_description(str(int(losses[step])))
+        if losses[step] < -2000:
+            x = enc.flow_dist.sample_n(1)[0]
+            plt.scatter(x[0], x[1], c='blue', alpha=0.05)
+            plt.scatter(x[2], x[3], c='red', alpha=0.05)
+
+    # x = enc.flow_dist.sample_n(1000)
+    # plt.scatter(x[:, 1], x[:, 0])
+
