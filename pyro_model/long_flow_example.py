@@ -1,6 +1,9 @@
 
 '''
-Nnet + long flows example: Bayes GPLVM works, to test flows
+Nnet + long flows example
+Bayes GPLVM works
+Flows worked once but not reproducible...
+This script learns a half-good flow
 '''
 
 import numpy as np
@@ -22,13 +25,13 @@ class Encoder(nn.Module):
 
         self.q = 2
         self.d = 2
-        self.nf = 1
+        self.nf = 40
         self.uuid = str(uuid4())
 
         dim = self.d * self.q
         self.mu_p = nn.Parameter(torch.ones(dim).normal_().float())
         self.sigma_p = nn.Parameter(torch.ones(dim).normal_().float())
-        self.flows = [dist.transforms.Radial(dim) for _ in range(self.nf)]
+        self.flows = [dist.transforms.Planar(dim) for _ in range(self.nf)]
 
         self.nnet = lambda x: torch.eye(self.q)
         # PyroModule[nn.Sequential](
@@ -69,7 +72,7 @@ if __name__ == '__main__':
     W = np.random.normal(size = (q, m))
     Y = torch.tensor(X @ W).float()
 
-    n_samp = 7
+    n_samp = 5
     std = (np.arange(n_samp) + 0.5)/n_samp # ppoints
     std = torch.tensor(list(product(*[norm.ppf(std)]*4))).float()
 
@@ -87,28 +90,39 @@ if __name__ == '__main__':
         log_p_given_x = torch.distributions.MultivariateNormal(
             loc, (scale + jitter).repeat([m, 1, 1])).log_prob(Y.T.repeat([len(flow_samp), 1]))
 
-        return -log_p_given_x.mean()*m # - (log_p - log_q).mean()
+        return -log_p_given_x.mean()*m - (log_p - log_q).mean()
 
-    for _ in range(100):
+    # for trial in range(100):
+    if True:
+        trial = 42
+        pyro.set_rng_seed(trial)
+
+        # std = torch.zeros(5000, 4).normal_().float()
 
         enc = Encoder()
 
         params = list(enc.parameters())
         for flow in enc.flows: params += list(flow.parameters())
 
-        optimizer = torch.optim.Adam(params, lr=0.5)
+        optimizer = torch.optim.Adam(params, lr=0.1)
 
-        steps = 500; losses = np.zeros(steps)
+        steps = 10000; losses = np.zeros(steps)
         bar = trange(steps, leave=False)
         for step in bar:
             enc.update()
             optimizer.zero_grad()
-            loss = neg_elbo()
-            loss.backward(retain_graph=True)
-            optimizer.step()
-            losses[step] = loss.data
+            try:
+                loss = neg_elbo()
+                loss.backward(retain_graph=True)
+                optimizer.step()
+                losses[step] = loss.data
+            except:
+                break
             bar.set_description(str(losses[step]))
+            if losses[step] < 30:
+                break
 
-        if losses[-1] < 30:
-            x = enc.flow_dist.sample_n(1000)
-            plt.scatter(x[:, 2], x[:, 3])
+        # print(str(trial) + ': ' + str(losses[:(step - 1)].min()))
+        x = enc.flow_dist.sample_n(1000)
+        plt.scatter(x[:, 0], x[:, 1], alpha=0.05)
+        plt.scatter(x[:, 2], x[:, 3], alpha=0.05)
