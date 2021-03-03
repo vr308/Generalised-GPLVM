@@ -1,8 +1,6 @@
 
 '''
-Nnet + long flows example
-Bayes GPLVM works
-Flows works(ish) (good enough!)
+long flows example (matches mcmc)
 '''
 
 import numpy as np
@@ -71,9 +69,8 @@ if __name__ == '__main__':
     W = np.random.normal(size = (q, m))
     Y = torch.tensor(X @ W).float()
 
-    n_samp = 5
-    std = (np.arange(n_samp) + 0.5)/n_samp # ppoints
-    std = torch.tensor(list(product(*[norm.ppf(std)]*4))).float()
+    pyro.set_rng_seed(42)
+    std = torch.zeros(750, n*q).normal_().float()
 
     def neg_elbo():
         base_samp = std*enc.sigma + enc.mu
@@ -103,7 +100,7 @@ if __name__ == '__main__':
 
         optimizer = torch.optim.Adam(params, lr=0.001)
 
-        steps = 30000; losses = np.zeros(steps)
+        steps = 60001; losses = np.zeros(steps)
         bar = trange(steps, leave=False)
         for step in bar:
             enc.update()
@@ -112,12 +109,20 @@ if __name__ == '__main__':
                 loss = neg_elbo()
                 loss.backward(retain_graph=True)
                 optimizer.step()
-                losses[step] = loss.data
             except:
                 break
+
+            losses[step] = loss.data
             bar.set_description(str(losses[step]))
 
+            if step % 1000 == 0:
+                x = enc.flow_dist.sample_n(10000)
+                plt.ylim(-5, 5)
+                plt.xlim(-5, 5)
+                plt.scatter(x[:, 0], x[:, 1], alpha=0.1)
+                plt.scatter(x[:, 2], x[:, 3], alpha=0.1)
+                plt.savefig(str(step) + '_' + str(int(loss.data)) + '.png')
+                plt.clf()
+
         print(str(trial) + ': ' + str(losses[:(step - 1)].min()))
-        x = enc.flow_dist.sample_n(1000)
-        plt.scatter(x[:, 0], x[:, 1], alpha=0.05)
-        plt.scatter(x[:, 2], x[:, 3], alpha=0.05)
+        np.save('flow_samples.npy', enc.flow_dist.sample_n(10000))
