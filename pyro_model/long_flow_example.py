@@ -2,8 +2,7 @@
 '''
 Nnet + long flows example
 Bayes GPLVM works
-Flows worked once but not reproducible...
-This script learns a half-good flow
+Flows works(ish) (good enough!)
 '''
 
 import numpy as np
@@ -45,7 +44,7 @@ class Encoder(nn.Module):
         self.update()
 
     def update(self):
-        self.mu = torch.tanh(self.mu_p)*3
+        self.mu = torch.tanh(self.mu_p)*5
         self.sigma = torch.tanh(self.sigma_p)*2 + 2
 
         self.base_dist = dist.Normal(self.mu, self.sigma)
@@ -97,16 +96,14 @@ if __name__ == '__main__':
         trial = 42
         pyro.set_rng_seed(trial)
 
-        # std = torch.zeros(5000, 4).normal_().float()
-
         enc = Encoder()
 
         params = list(enc.parameters())
         for flow in enc.flows: params += list(flow.parameters())
 
-        optimizer = torch.optim.Adam(params, lr=0.1)
+        optimizer = torch.optim.Adam(params, lr=0.001)
 
-        steps = 10000; losses = np.zeros(steps)
+        steps = 30000; losses = np.zeros(steps)
         bar = trange(steps, leave=False)
         for step in bar:
             enc.update()
@@ -119,10 +116,8 @@ if __name__ == '__main__':
             except:
                 break
             bar.set_description(str(losses[step]))
-            if losses[step] < 30:
-                break
 
-        # print(str(trial) + ': ' + str(losses[:(step - 1)].min()))
+        print(str(trial) + ': ' + str(losses[:(step - 1)].min()))
         x = enc.flow_dist.sample_n(1000)
         plt.scatter(x[:, 0], x[:, 1], alpha=0.05)
         plt.scatter(x[:, 2], x[:, 3], alpha=0.05)
