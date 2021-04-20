@@ -11,11 +11,11 @@ from utils.data import float_tensor
 plt.ion(); plt.style.use('ggplot')
 
 class NormalMix(torch.nn.Module):
-    def __init__(self, n_comp=7):
+    def __init__(self, n_comp=1):
         super().__init__()
         self.p = torch.nn.Parameter(torch.ones(n_comp).float())
         self.mu = torch.nn.Parameter(torch.ones(n_comp, 4).float())
-        self.sigma = torch.nn.Parameter(torch.ones(n_comp, 16).normal_().float())
+        self.sigma = torch.nn.Parameter(torch.ones(n_comp, 4).normal_().float())
         self.update()
 
     @staticmethod
@@ -25,8 +25,10 @@ class NormalMix(torch.nn.Module):
 
     def update(self):
         mix = dist.Categorical(logits=self.p)
-        sigma = torch.cat([self.reshape_dot(self.sigma[i, :]) for i in range(len(self.p))], axis=0)
-        comp = dist.MultivariateNormal(self.mu, sigma)
+        #sigma = torch.cat([self.reshape_dot(self.sigma[i, :]) for i in range(len(self.p))], axis=0)
+        sigma = torch.exp(self.sigma)
+        #comp = dist.MultivariateNormal(self.mu, sigma)
+        comp = dist.Normal(self.mu, sigma)
         self.mix_dist = dist.MixtureSameFamily(mix, comp)
 
     def _register(self):
@@ -56,7 +58,7 @@ if __name__ == '__main__':
     # Create Synthetic Data
 
     np.random.seed(42)
-    n = 2; q = 2; m = 10
+    n = 2; q = 2; m = 100
 
     X = np.random.normal(size = (n, q))
     W = np.random.normal(size = (q, m))

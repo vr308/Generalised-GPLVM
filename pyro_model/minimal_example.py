@@ -57,6 +57,7 @@ class Encoder(nn.Module):
         Z = pyro.sample('Z', self.flow_dist)
         Z = Z.reshape(self.d, self.q)
         pyro.sample('X', dist.Normal(self.nnet(Y) @ Z, 1e-2))
+        
 
 if __name__ == '__main__':
 
