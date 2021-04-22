@@ -5,41 +5,28 @@ Likelihood class for missing data
 
 """
 
-import pyro
-import torch
-import gpytorch
-import pyro.contrib.gp as gp
-import pyro.distributions as dist
-from gpytorch.likelihoods import _OneDimensionalLikelihood
+from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import base_distributions
 
-# class MaskedGaussianLikelihood(gpytorch.likelihoods.GaussianLikelihood):
-    
-#     def __init__(self):
-#         super().__init__()
+class GaussianLikelihoodWithMissingObs(GaussianLikelihood):
+    def __init__(self, missing_indices, **kwargs):
+        super().__init__(**kwargs)
+        self.missing_indices = missing_indices
+
+    def expected_log_prob(self, *args, **kwargs):
+        res = super().expected_log_prob(*args, **kwargs)
+        res[self.missing_indices] = 0.0
+        return res
+
+    def log_marginal(self, observations, function_dist, *params, **kwargs):
+        marginal = self.marginal(function_dist, *params, **kwargs)
+        indep_dist = base_distributions.Normal(marginal.mean, marginal.variance.clamp_min(1e-8).sqrt())
         
-#     def forward(self, f_loc, f_var, y=None):
-#         y_var = f_var + self.variance
-#         y_dist = dist.Normal(f_loc, y_var.sqrt())
+        observations[self.missing_indices] = -999.0
+        res = indep_dist.log_prob(observations)
+        res[self.missing_indices] = 0.0
 
-#         if y is not None:
-#             if y.isnan().any():
-#                 y_dist = dist.MaskedDistribution(y_dist, ~y.isnan())
-#                 y = torch.masked_fill(y, y.isnan(), -999.)
-#             y_dist = base_distributions.Normal(f,noise.sqrt())
-    
-    
-class MaskedGaussian(gpytorch.likelihoods.GaussianLikelihood):
-    
-    def forward(self, f_loc, f_var, y=None):
-        y_var = f_var + self.variance
-        y_dist = dist.Normal(f_loc, y_var.sqrt())
-
-        if y is not None:
-            if y.isnan().any():
-                y_dist = dist.MaskedDistribution(y_dist, ~y.isnan())
-                y = torch.masked_fill(y, y.isnan(), -999.)
-
-            y_dist =\
-                y_dist.expand_by(y.shape[:-f_loc.dim()]).to_event(y.dim())
-        return pyro.sample(self._pyro_get_fullname("y"), y_dist, obs=y)
+        num_event_dim = len(function_dist.event_shape)
+        if num_event_dim > 1:
+            res = res.sum(list(range(-1, -num_event_dim, -1)))
+        return res
