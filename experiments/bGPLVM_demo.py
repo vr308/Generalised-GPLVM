@@ -26,7 +26,7 @@ from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
-from models.masked_likelihood import GaussianLikelihoodWithMissingObs
+from models.likelihoods import GaussianLikelihoodWithMissingObs
 
 def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     
     # Likelihood
     #likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    likelihood = GaussianLikelihoodWithMissingObs(Y.isnan().T, batch_shape=model.batch_shape)
+    likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     # Declaring objective to be optimised along with optimiser
     mll = VariationalELBO(likelihood, model, num_data=len(Y))

@@ -3,7 +3,7 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal, base_distributions
 
 class GaussianLikelihoodWithMissingObs(GaussianLikelihood):
-    def __init__(self, missing_indices, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def expected_log_prob(self, *args, **kwargs):
@@ -34,6 +34,6 @@ if __name__ == '__main__':
     x = mvn.sample()
     x[0, 1] = np.nan
     
-    lik = GaussianLikelihoodWithMissingObs(missing_indices=x.isnan(), batch_shape=(5,))
+    lik = GaussianLikelihoodWithMissingObs(batch_shape=(5,))
     lik.expected_log_prob(x, mvn)
     lik.log_marginal(x, mvn)
