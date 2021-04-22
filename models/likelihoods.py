@@ -1,4 +1,5 @@
 
+import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal, base_distributions
 
@@ -6,9 +7,11 @@ class GaussianLikelihoodWithMissingObs(GaussianLikelihood):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def expected_log_prob(self, *args, **kwargs):
-        res = super().expected_log_prob(*args, **kwargs)
-        res[res.isnan()] = 0.0
+    def expected_log_prob(self, target, input, *params, **kwargs):
+        missing_indices = target.isnan()
+        target = torch.masked_fill(target, missing_indices, -999.)
+        res = super().expected_log_prob(target, input, *params, **kwargs)
+        res[missing_indices] = 0.0
         return res
 
     def log_marginal(self, observations, function_dist, *params, **kwargs):
@@ -16,7 +19,7 @@ class GaussianLikelihoodWithMissingObs(GaussianLikelihood):
         indep_dist = base_distributions.Normal(marginal.mean, marginal.variance.clamp_min(1e-8).sqrt())
         
         missing_indices = observations.isnan()
-        observations[missing_indices] = -999.0
+        observations = torch.masked_fill(observations, missing_indices, -999.)
         res = indep_dist.log_prob(observations)
         res[missing_indices] = 0.0
 
