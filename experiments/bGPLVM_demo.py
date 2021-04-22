@@ -11,7 +11,7 @@ Demo script for bGPLVM Gaussian with different inference modes.
 # Amortised Inference
 # Missing data dimensions (masking)
 
-from utils.data import load_real_data
+from utils.data import load_real_data 
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import LatentVariable, PointLatentVariable, MAPLatentVariable, VariationalLatentVariable
 from matplotlib import pyplot as plt
@@ -47,7 +47,7 @@ class My_GPLVM_Model(BayesianGPLVM):
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
     
         # Define prior for X
-        X_prior_mean = torch.zeros(Y.shape[0], latent_dim)  # shape: N x Q
+        X_prior_mean = torch.zeros(n, latent_dim)  # shape: N x Q
         prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
     
         # Initialise X with PCA or 0s.
@@ -57,7 +57,10 @@ class My_GPLVM_Model(BayesianGPLVM):
              X_init = torch.nn.Parameter(torch.zeros(n, latent_dim))
           
         # LatentVariable (X)
-        X = VariationalLatentVariable(Y.shape[0], latent_dim, X_init, prior_x)
+        X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
+        #X = PointLatentVariable(n, latent_dim, X_init)
+        #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
+        
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
         # Kernel 
@@ -78,9 +81,14 @@ class My_GPLVM_Model(BayesianGPLVM):
          return np.sort(batch_indices)
 
 if __name__ == '__main__':
+    
+    # Setting seed for reproducibility
+    
+    torch.manual_seed(73)
 
     # Load some data
     
+    #N, d, q, X, Y, labels = load_real_data('movie_lens')
     N, d, q, X, Y, labels = load_real_data('oilflow')
       
     # Setting shapes
@@ -89,7 +97,7 @@ if __name__ == '__main__':
     latent_dim = 12
     n_inducing = 25
     pca = False
-       
+    
     # Model
     model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca)
     
@@ -108,9 +116,10 @@ if __name__ == '__main__':
     # using the optimizer provided.
     
     loss_list = []
-    iterator = trange(2000, leave=True)
+    iterator = trange(10000, leave=True)
+    batch_size = 100
     for i in iterator: 
-        batch_index = model._get_batch_idx(100)
+        batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
         sample = model.sample_latent_variable()  # a full sample returns latent x across all N
         sample_batch = sample[batch_index]
@@ -127,11 +136,12 @@ if __name__ == '__main__':
     colors = ['r', 'b', 'g']
  
     X = model.X.q_mu.detach().numpy()
+    #X = model.X().detach().numpy()
     std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
     # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
     for i, label in enumerate(np.unique(labels)):
         X_i = X[labels == label]
         scale_i = std[labels == label]
-        plt.scatter(X_i[:, 3], X_i[:, 4], c=[colors[i]], label=label)
-        plt.errorbar(X_i[:, 3], X_i[:, 4], xerr=scale_i[:,0], yerr=scale_i[:,8], label=label,c=colors[i], fmt='none')
+        plt.scatter(X_i[:, 1], X_i[:, 0], c=[colors[i]], label=label)
+        plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
