@@ -32,12 +32,11 @@ if __name__ == '__main__':
     from gpytorch.distributions import MultivariateNormal
     torch.manual_seed(42)
 
-    mu = torch.zeros(5)
-    sigma = torch.ones(5)
-    mvn = Normal(mu, sigma)
+    mu = torch.zeros(5, 2)
+    sigma = torch.cat([torch.eye(2)[None, ...]]*5, axis=0)
+    mvn = MultivariateNormal(mu, sigma)
     x = mvn.sample()
-    x[0] = np.nan
+    x[0, 1] = np.nan
     
     lik = GaussianLikelihoodWithMissingObs(batch_shape=(5,))
     lik.expected_log_prob(x, mvn) == lik.log_marginal(x, mvn)
-
