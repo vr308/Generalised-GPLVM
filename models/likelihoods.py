@@ -1,42 +1,43 @@
 
-import torch
+from torch import masked_fill
 from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.distributions import MultivariateNormal, base_distributions
+from torch.distributions import Normal
 
 class GaussianLikelihoodWithMissingObs(GaussianLikelihood):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
+    @staticmethod
+    def _get_masked_obs(x):
+        missing_idx = x.isnan()
+        x_masked = masked_fill(x, missing_idx, -999.)
+        return missing_idx, x_masked
+
     def expected_log_prob(self, target, input, *params, **kwargs):
-        missing_indices = target.isnan()
-        target = torch.masked_fill(target, missing_indices, -999.)
+        missing_idx, target = self._get_masked_obs(target)
         res = super().expected_log_prob(target, input, *params, **kwargs)
-        res[missing_indices] = 0.0
+        res[missing_idx] = 0.0
         return res
 
     def log_marginal(self, observations, function_dist, *params, **kwargs):
-        marginal = self.marginal(function_dist, *params, **kwargs)
-        indep_dist = base_distributions.Normal(marginal.mean, marginal.variance.clamp_min(1e-8).sqrt())
-        
-        missing_indices = observations.isnan()
-        observations = torch.masked_fill(observations, missing_indices, -999.)
-        res = indep_dist.log_prob(observations)
-        res[missing_indices] = 0.0
-
-        num_event_dim = len(function_dist.event_shape)
-        if num_event_dim > 1:
-            res = res.sum(list(range(-1, -num_event_dim, -1)))
+        missing_idx, observations = self._get_masked_obs(observations)
+        res = super().expected_log_prob(observations, function_dist, *params, **kwargs)
+        res[missing_idx] = 0.0
         return res
 
 if __name__ == '__main__':
 
-    import torch as t
+    import torch
     import numpy as np
+    from gpytorch.distributions import MultivariateNormal
+    torch.manual_seed(42)
 
-    mvn = MultivariateNormal(t.zeros(5, 2), t.cat([t.eye(2)[None, ...]]*5, axis=0))
+    mu = torch.zeros(5)
+    sigma = torch.ones(5)
+    mvn = Normal(mu, sigma)
     x = mvn.sample()
-    x[0, 1] = np.nan
+    x[0] = np.nan
     
     lik = GaussianLikelihoodWithMissingObs(batch_shape=(5,))
-    lik.expected_log_prob(x, mvn)
-    lik.log_marginal(x, mvn)
+    lik.expected_log_prob(x, mvn) == lik.log_marginal(x, mvn)
+
