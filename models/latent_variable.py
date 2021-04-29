@@ -6,6 +6,7 @@ Latent Variable class with sub-classes that determine type of inference for the 
 """
 import gpytorch
 import torch
+from torch import nn
 from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
 
@@ -43,7 +44,51 @@ class MAPLatentVariable(LatentVariable):
 
     def forward(self):
         return self.X
-        
+
+class NNEncoder(LatentVariable):    
+    def __init__(self, n, latent_dim, X_init, prior_x, data_dim, layers):
+        super().__init__(n, latent_dim)
+        self.prior_x = prior_x
+        self.data_dim = data_dim
+
+        n_sg_out = latent_dim**2
+        n_sg_nodes = (data_dim + n_sg_out)//2
+        mu_layers = (data_dim,) + layers + (latent_dim,)
+        sg_layers = (data_dim,) + (n_sg_nodes,)*len(layers) + (n_sg_out,)
+        n_layers = len(mu_layers)
+
+        self.mu_layers = nn.ModuleList([ \
+            nn.Linear(mu_layers[i], mu_layers[i + 1]) \
+            for i in range(n_layers - 1)])
+
+        self.sg_layers = nn.ModuleList([ \
+            nn.Linear(sg_layers[i], sg_layers[i + 1]) \
+            for i in range(n_layers - 1)])
+
+        self.register_added_loss_term("x_kl")
+
+    def forward(self, Y):
+        mu = torch.relu(self.mu_layers[0](Y))
+        for i in range(1, len(self.mu_layers)):
+            mu = torch.relu(self.mu_layers[i](mu))
+
+        sg = torch.relu(self.sg_layers[0](Y))
+        for i in range(1, len(self.sg_layers)):
+            sg = torch.relu(self.sg_layers[i](sg))
+
+        sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
+        sg = torch.einsum('aij,akj->aik', sg, sg)
+
+        jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-6
+        jitter = torch.cat([jitter for i in range(len(sg))], axis=0)
+        sg += jitter
+
+        q_x = torch.distributions.MultivariateNormal(mu, sg)
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
+        self.update_added_loss_term('x_kl', x_kl)
+        return q_x.rsample()
+
+
 class VariationalLatentVariable(LatentVariable):
     
     def __init__(self, n, data_dim, latent_dim, X_init, prior_x):
