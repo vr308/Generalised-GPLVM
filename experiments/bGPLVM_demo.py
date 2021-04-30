@@ -8,12 +8,10 @@ Demo script for bGPLVM Gaussian with different inference modes.
 # TODO's:
 # Snaphot param state and save
 # Flexible variational family
-# Amortised Inference
-# Missing data dimensions (masking)
 
 from utils.data import load_real_data 
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import LatentVariable, PointLatentVariable, MAPLatentVariable, VariationalLatentVariable
+from models.latent_variable import *
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -58,9 +56,10 @@ class My_GPLVM_Model(BayesianGPLVM):
              X_init = torch.nn.Parameter(torch.zeros(n, latent_dim))
           
         # LatentVariable (X)
-        X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
+        #X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
         #X = PointLatentVariable(n, latent_dim, X_init)
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
+        X = NNEncoder(n, latent_dim, X_init, prior_x, data_dim, layers=(3, 2))
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
@@ -89,8 +88,8 @@ if __name__ == '__main__':
 
     # Load some data
     
-    N, d, q, X, Y, labels = load_real_data('movie_lens')
-    #N, d, q, X, Y, labels = load_real_data('oilflow')
+    # N, d, q, X, Y, labels = load_real_data('movie_lens')
+    N, d, q, X, Y, labels = load_real_data('oilflow')
       
     # Setting shapes
     N = len(Y)
@@ -123,7 +122,7 @@ if __name__ == '__main__':
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample = model.sample_latent_variable()  # a full sample returns latent x across all N
+        sample = model.sample_latent_variable(Y)  # a full sample returns latent x across all N
         sample_batch = sample[batch_index]
         output_batch = model(sample_batch)
         loss = -mll(output_batch, Y[batch_index].T).sum()

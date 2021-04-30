@@ -30,8 +30,8 @@ class BayesianGPLVM(ApproximateGP):
     def forward(self):
         raise NotImplementedError
           
-    def sample_latent_variable(self):
-        sample = self.X()
+    def sample_latent_variable(self, *args, **kwargs):
+        sample = self.X(*args, **kwargs)
         return sample
     
     def get_trainable_param_names(self):
