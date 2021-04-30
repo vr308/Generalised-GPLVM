@@ -18,7 +18,7 @@ import numpy as np
 from tqdm import trange
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
-from gpytorch.priors import NormalPrior
+from gpytorch.priors import NormalPrior, MultivariateNormalPrior
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
@@ -31,7 +31,7 @@ def _init_pca(Y, latent_dim):
     return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
 class My_GPLVM_Model(BayesianGPLVM):
-     def __init__(self, n, data_dim, latent_dim, n_inducing, pca=False):
+     def __init__(self, n, data_dim, latent_dim, n_inducing, pca=False, nn_layers=None):
          
         self.n = n
         self.batch_shape = torch.Size([data_dim])
@@ -59,7 +59,9 @@ class My_GPLVM_Model(BayesianGPLVM):
         #X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
         #X = PointLatentVariable(n, latent_dim, X_init)
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
-        X = NNEncoder(n, latent_dim, X_init, prior_x, data_dim, layers=(3, 2))
+        if nn_layers is not None:
+            prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
+        X = NNEncoder(n, latent_dim, X_init, prior_x, data_dim, layers=nn_layers)
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
@@ -99,7 +101,7 @@ if __name__ == '__main__':
     pca = False
     
     # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca)
+    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(3, 2))
     
     # Likelihood
     #likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
