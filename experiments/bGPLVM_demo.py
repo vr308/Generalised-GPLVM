@@ -47,7 +47,6 @@ class My_GPLVM_Model(BayesianGPLVM):
     
         # Define prior for X
         X_prior_mean = torch.zeros(n, latent_dim)  # shape: N x Q
-        prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
     
         # Initialise X with PCA or 0s.
         if pca == True:
@@ -56,12 +55,14 @@ class My_GPLVM_Model(BayesianGPLVM):
              X_init = torch.nn.Parameter(torch.zeros(n, latent_dim))
           
         # LatentVariable (X)
-        #X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
         #X = PointLatentVariable(n, latent_dim, X_init)
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        X = NNEncoder(n, latent_dim, X_init, prior_x, data_dim, layers=nn_layers)
+            X = NNEncoder(n, latent_dim, X_init, prior_x, data_dim, layers=nn_layers)
+        else:
+            prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+            X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
