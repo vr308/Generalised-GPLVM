@@ -46,7 +46,7 @@ class MAPLatentVariable(LatentVariable):
         return self.X
 
 class NNEncoder(LatentVariable):    
-    def __init__(self, n, latent_dim, X_init, prior_x, data_dim, layers):
+    def __init__(self, n, latent_dim, prior_x, data_dim, layers):
         super().__init__(n, latent_dim)
         self.prior_x = prior_x
         self.data_dim = data_dim
@@ -70,7 +70,8 @@ class NNEncoder(LatentVariable):
     def forward(self, Y):
         mu = torch.relu(self.mu_layers[0](Y))
         for i in range(1, len(self.mu_layers)):
-            mu = torch.relu(self.mu_layers[i](mu))
+            mu = torch.tanh(self.mu_layers[i](mu))
+            if i == (len(self.mu_layers) - 1): mu = mu * 5
 
         sg = torch.relu(self.sg_layers[0](Y))
         for i in range(1, len(self.sg_layers)):
