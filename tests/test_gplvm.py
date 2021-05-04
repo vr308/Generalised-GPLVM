@@ -60,7 +60,7 @@ def train(model, likelihood, Y, steps=1000, batch_size=100):
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample = model.sample_latent_variable(Y)  # a full sample returns latent x across all N
+        sample = model.sample_latent_variable(Y)
         sample_batch = sample[batch_index]
         output_batch = model(sample_batch)
         loss = -elbo(output_batch, Y[batch_index].T).sum()
@@ -82,4 +82,4 @@ if __name__ == '__main__':
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
     losses = train(model, likelihood, Y, steps=2500, batch_size=250)
 
-    plot_y_reconstruction(X, Y, model(model.X(Y)).loc.detach().T)
+    plot_y_reconstruction(X, Y, model(model.X.mu(Y)).loc.detach().T)

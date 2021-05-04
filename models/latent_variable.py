@@ -67,12 +67,14 @@ class NNEncoder(LatentVariable):
 
         self.register_added_loss_term("x_kl")
 
-    def forward(self, Y):
+    def mu(self, Y):
         mu = torch.relu(self.mu_layers[0](Y))
         for i in range(1, len(self.mu_layers)):
             mu = torch.tanh(self.mu_layers[i](mu))
             if i == (len(self.mu_layers) - 1): mu = mu * 5
+        return mu        
 
+    def sigma(self, Y):
         sg = torch.relu(self.sg_layers[0](Y))
         for i in range(1, len(self.sg_layers)):
             sg = torch.relu(self.sg_layers[i](sg))
@@ -83,7 +85,11 @@ class NNEncoder(LatentVariable):
         jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-6
         jitter = torch.cat([jitter for i in range(len(sg))], axis=0)
         sg += jitter
+        return sg
 
+    def forward(self, Y):
+        mu = self.mu(Y)
+        sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)
