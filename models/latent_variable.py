@@ -77,7 +77,8 @@ class NNEncoder(LatentVariable):
     def sigma(self, Y):
         sg = torch.relu(self.sg_layers[0](Y))
         for i in range(1, len(self.sg_layers)):
-            sg = torch.relu(self.sg_layers[i](sg))
+            sg = torch.tanh(self.sg_layers[i](sg))
+            if i == (len(self.sg_layers) - 1): sg = sg * 5
 
         sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
         sg = torch.einsum('aij,akj->aik', sg, sg)
