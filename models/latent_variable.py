@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
-from pyro.nn import AutoRegressiveNN
+from .iaf import AutoRegressiveNN
 import torch.nn.functional as F
 from pyro.distributions.transforms import AffineAutoregressive
 
@@ -53,22 +53,36 @@ class NNEncoder(LatentVariable):
         super().__init__(n, latent_dim)
         self.prior_x = prior_x
         self.data_dim = data_dim
+        self.latent_dim = latent_dim
 
-        n_sg_out = latent_dim**2
-        n_sg_nodes = (data_dim + n_sg_out)//2
-        mu_layers = (data_dim,) + layers + (latent_dim,)
-        sg_layers = (data_dim,) + (n_sg_nodes,)*len(layers) + (n_sg_out,)
-        n_layers = len(mu_layers)
+        self._init_mu_nnet(layers)
+        self._init_sg_nnet(len(layers))
+        self.register_added_loss_term("x_kl")
+
+    def _get_mu_layers(self, layers):
+        return (self.data_dim,) + layers + (self.latent_dim,)
+
+    def _init_mu_nnet(self, layers):
+        layers = self._get_mu_layers(layers)
+        n_layers = len(layers)
 
         self.mu_layers = nn.ModuleList([ \
-            nn.Linear(mu_layers[i], mu_layers[i + 1]) \
+            nn.Linear(layers[i], layers[i + 1]) \
             for i in range(n_layers - 1)])
+
+    def _get_sg_layers(self, n_layers):
+        n_sg_out = self.latent_dim**2
+        n_sg_nodes = (self.data_dim + n_sg_out)//2
+        sg_layers = (self.data_dim,) + (n_sg_nodes,)*n_layers + (n_sg_out,)
+        return sg_layers
+
+    def _init_sg_nnet(self, n_layers):
+        layers = self._get_sg_layers(n_layers)
+        n_layers = len(layers)
 
         self.sg_layers = nn.ModuleList([ \
-            nn.Linear(sg_layers[i], sg_layers[i + 1]) \
+            nn.Linear(layers[i], layers[i + 1]) \
             for i in range(n_layers - 1)])
-
-        self.register_added_loss_term("x_kl")
 
     def mu(self, Y):
         mu = torch.relu(self.mu_layers[0](Y))
@@ -98,11 +112,25 @@ class NNEncoder(LatentVariable):
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)
         return q_x.rsample()
-    
+
+class IAFEncoder(NNEncoder):
+    def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers):
+        super().__init__()
+        self.flows = [IAF()]
+
+    def _get_mu_layers(self, layers):
+        return (self.data_dim,) + layers + (self.latent_dim,)
+
+    def forward():
+        for flow in self.flows:
+            log_det_jac += flow.log_det_jac
+        log_q_base = kl_normal()
+
 class IAF(gpytorch.Module):
     """
     Inverse Autoregressive Flow
     https://arxiv.org/pdf/1606.04934.pdf
+    This implementation is from ritchie46/vi-torch
     """
 
     def __init__(self, latent_dim, context_size=1, auto_regressive_hidden=1):
@@ -136,17 +164,6 @@ class IAF(gpytorch.Module):
 
         # transformation
         return sigma_t * z + (1 - sigma_t) * m_t
-
-class IAFEncoder(NNEncoder):
-    def __init__(*args, **kwargs, context_size=0):
-        super().__init__()
-        self.flows = [IAF()]
-
-    def forward():
-        for flow in self.flows:
-            log_det_jac += flow.log_det_jac
-        log_q_base = kl_normal()
-    
 
 class VariationalLatentVariable(LatentVariable):
     
