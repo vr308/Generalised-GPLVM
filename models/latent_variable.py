@@ -85,14 +85,14 @@ class NNEncoder(LatentVariable):
             for i in range(n_layers - 1)])
 
     def mu(self, Y):
-        mu = torch.relu(self.mu_layers[0](Y))
+        mu = torch.tanh(self.mu_layers[0](Y))
         for i in range(1, len(self.mu_layers)):
             mu = torch.tanh(self.mu_layers[i](mu))
             if i == (len(self.mu_layers) - 1): mu = mu * 5
         return mu        
 
     def sigma(self, Y):
-        sg = torch.relu(self.sg_layers[0](Y))
+        sg = torch.tanh(self.sg_layers[0](Y))
         for i in range(1, len(self.sg_layers)):
             sg = torch.tanh(self.sg_layers[i](sg))
             if i == (len(self.sg_layers) - 1): sg = sg * 5
