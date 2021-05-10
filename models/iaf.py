@@ -38,7 +38,6 @@ class MADE(nn.Module):
 class AutoRegressiveNN(MADE):
     def __init__(self, in_features, hidden_features, context_features):
         super().__init__(in_features, hidden_features)
-        self.context = nn.Linear(context_features, in_features)
         # remove MADE output layer
         del self.layers[len(self.layers) - 1]
 

@@ -114,17 +114,27 @@ class NNEncoder(LatentVariable):
         return q_x.rsample()
 
 class IAFEncoder(NNEncoder):
-    def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers):
-        super().__init__()
-        self.flows = [IAF()]
+    def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers, n_flows):
+        self.context_size = context_size
+        super().__init__(n, latent_dim, prior_x, data_dim, layers)
+        self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
 
     def _get_mu_layers(self, layers):
-        return (self.data_dim,) + layers + (self.latent_dim,)
+        return (self.data_dim,) + layers + (self.latent_dim + self.context_size,)
 
-    def forward():
+    def forward(self, Y):
+        mu_and_h = self.mu(Y)
+        mu = mu_and_h[:, :-self.context_size]
+        h = mu_and_h[:, self.context_size:]
+        sg = self.sigma(Y)
+        q_x = torch.distributions.MultivariateNormal(mu, sg)
+        sample = q_x.rsample()
+
         for flow in self.flows:
-            log_det_jac += flow.log_det_jac
-        log_q_base = kl_normal()
+            sample = flow.forward(sample, h)
+
+        # DO KL STUFF
+        return sample
 
 class IAF(gpytorch.Module):
     """
@@ -135,6 +145,7 @@ class IAF(gpytorch.Module):
 
     def __init__(self, latent_dim, context_size=1, auto_regressive_hidden=1):
         super().__init__()
+        self._kl_divergence_ = 0.0
         self.context_size = context_size
         self.s_t = AutoRegressiveNN(
             in_features=latent_dim,
@@ -206,7 +217,7 @@ class kl_gaussian_loss_term(AddedLossTerm):
         # so they can be added together. Hence, we divide by data_dim to avoid 
         # overcounting the kl term
         return (kl_per_point/self.data_dim)
-    
+
 # class flow_det_loss_term(AddedLossTerm):
     
 #     def __init__(self, num_flows, n, data_dim):
