@@ -9,6 +9,9 @@ import torch
 from torch import nn
 from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
+from pyro.nn import AutoRegressiveNN
+import torch.nn.functional as F
+from pyro.distributions.transforms import AffineAutoregressive
 
 class LatentVariable(gpytorch.Module):
     
@@ -95,7 +98,55 @@ class NNEncoder(LatentVariable):
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)
         return q_x.rsample()
+    
+class IAF(gpytorch.Module):
+    """
+    Inverse Autoregressive Flow
+    https://arxiv.org/pdf/1606.04934.pdf
+    """
 
+    def __init__(self, latent_dim, context_size=1, auto_regressive_hidden=1):
+        super().__init__()
+        self.context_size = context_size
+        self.s_t = AutoRegressiveNN(
+            in_features=latent_dim,
+            hidden_features=auto_regressive_hidden,
+            context_features=context_size,
+        )
+        self.m_t = AutoRegressiveNN(
+            in_features=latent_dim,
+            hidden_features=auto_regressive_hidden,
+            context_features=context_size,
+        )
+
+    def determine_log_det_jac(self, sigma_t):
+        return torch.log(sigma_t + 1e-6).sum(1)
+
+    def forward(self, z, h=None):
+        if h is None:
+            h = torch.zeros(self.context_size)
+
+        # Initially s_t should be large, i.e. 1 or 2.
+        s_t = self.s_t(z, h) + 1.5
+        sigma_t = F.sigmoid(s_t)
+        m_t = self.m_t(z, h)
+
+        # log |det Jac|
+        self._kl_divergence_ += self.determine_log_det_jac(sigma_t)
+
+        # transformation
+        return sigma_t * z + (1 - sigma_t) * m_t
+
+class IAFEncoder(NNEncoder):
+    def __init__(*args, **kwargs, context_size=0):
+        super().__init__()
+        self.flows = [IAF()]
+
+    def forward():
+        for flow in self.flows:
+            log_det_jac += flow.log_det_jac
+        log_q_base = kl_normal()
+    
 
 class VariationalLatentVariable(LatentVariable):
     
@@ -138,3 +189,22 @@ class kl_gaussian_loss_term(AddedLossTerm):
         # so they can be added together. Hence, we divide by data_dim to avoid 
         # overcounting the kl term
         return (kl_per_point/self.data_dim)
+    
+# class flow_det_loss_term(AddedLossTerm):
+    
+#     def __init__(self, num_flows, n, data_dim):
+#         self.q_x = q_x
+#         self.p_x = p_x
+#         self.n = n
+#         self.data_dim = data_dim
+        
+#     def loss(self): 
+#         # G 
+#         kl_per_latent_dim = kl_divergence(self.q_x, self.p_x).sum(axis=0) # vector of size latent_dim
+#         kl_per_point = kl_per_latent_dim.sum()/self.n # scalar
+#         # inside the forward method of variational ELBO, 
+#         # the added loss terms are expanded (using add_) to take the same 
+#         # shape as the log_lik term (has shape data_dim)
+#         # so they can be added together. Hence, we divide by data_dim to avoid 
+#         # overcounting the kl term
+#         return (kl_per_point/self.data_dim)
