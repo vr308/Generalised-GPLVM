@@ -78,7 +78,7 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     N, d, q, X, Y, labels = generate_synthetic_data(n=300, x_type='normal', y_type='hi_dim')
-    model = GPLVM(N, d, q, n_inducing=25, nn_layers=(6, 5, 4, 4, 4, 4, 4))
+    model = GPLVM(N, d, q, n_inducing=25, nn_layers=(3,))
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
     losses = train(model, likelihood, Y, steps=2500, batch_size=250)
 
