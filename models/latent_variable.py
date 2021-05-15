@@ -196,7 +196,7 @@ class IAF(gpytorch.Module):
         m_t = self.m_t(z, h)
 
         # log |det Jac|
-        self._kl_divergence_ += self.determine_log_det_jac(sigma_t)
+        self._kl_divergence_ = self.determine_log_det_jac(sigma_t)
 
         # transformation
         return sigma_t * z + (1 - sigma_t) * m_t
