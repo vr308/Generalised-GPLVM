@@ -8,6 +8,7 @@ Retrieved from..
 from torch import nn
 import torch
 import torch.nn.functional as F
+import gpytorch 
 
 
 class LinearMasked(nn.Module):

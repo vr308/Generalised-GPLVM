@@ -11,6 +11,7 @@ from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
 from models.iaf import AutoRegressiveNN
 import torch.nn.functional as F
+import numpy as np
 
 class LatentVariable(gpytorch.Module):
     
@@ -115,12 +116,15 @@ class NNEncoder(LatentVariable):
 class IAFEncoder(NNEncoder):
     def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers, n_flows):
         self.context_size = context_size
+        super().__init__(n, latent_dim, prior_x, data_dim, layers)
         self.prior_x = prior_x
         self.latent_dim = latent_dim
         self.data_dim = data_dim
         self.n = n
-        super().__init__(n, latent_dim, prior_x, data_dim, layers)
         self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
+        
+        for i in range(n_flows):
+            self.add_module(f'flows{i}', self.flows[i])
         
         self.register_added_loss_term("x_kl")
         self.register_added_loss_term("x_det_jacobian")
@@ -143,7 +147,7 @@ class IAFEncoder(NNEncoder):
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term with the seed gaussian
         
         # add further loss term accounting for jacobian determinant
-        sum_log_det_jac = flow_det_loss_term(self.flow_list, self.n, self.data_dim)
+        sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
         self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
         
         return sample
@@ -169,6 +173,15 @@ class IAF(gpytorch.Module):
             hidden_features=auto_regressive_hidden,
             context_features=context_size,
         )
+        
+        num_layers = len(self.s_t.layers)
+        for i in range(num_layers):
+            self.add_module('flows', self.m_t.layers[i])
+            self.add_module('flows', self.s_t.layers[i])
+        
+        # add params from m_t and s_t so they can be learnt
+        #self.add_module('m_layers', self.m_t.layers)
+        #self.add_module('s_layers', self.s_t.layers)
 
     def determine_log_det_jac(self, sigma_t):
         return torch.log(sigma_t + 1e-6).sum(1)
@@ -239,7 +252,7 @@ class flow_det_loss_term(AddedLossTerm):
         
     def loss(self): 
         # G 
-        det_loss_per_latent_dim = [x._kl_divergence_ for x in self.flow_list].sum(axis=0)
+        det_loss_per_latent_dim = np.array([x._kl_divergence_ for x in self.flow_list]).sum(axis=0)
         det_loss_per_point = det_loss_per_latent_dim.sum()/self.n # scalar
         # inside the forward method of variational ELBO, 
         # the added loss terms are expanded (using add_) to take the same 

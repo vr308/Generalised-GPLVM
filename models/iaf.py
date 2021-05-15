@@ -7,9 +7,10 @@ Inverse Auto-Regressive Flows
 from torch import nn
 import torch
 import torch.nn.functional as F
-from .autoregressive import SequentialMasked, LinearMasked
+import gpytorch
+from models.autoregressive import SequentialMasked, LinearMasked
 
-class MADE(nn.Module):
+class MADE(gpytorch.Module):
     
     """
     See Also:
@@ -40,7 +41,7 @@ class AutoRegressiveNN(MADE):
         super().__init__(in_features, hidden_features)
         # remove MADE output layer
         del self.layers[len(self.layers) - 1]
-
+        
     def forward(self, z, h):
         return self.layers(z) + h
 
