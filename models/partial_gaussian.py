@@ -97,3 +97,55 @@ class NNHeteroGaussian(Likelihood):
         px = Normal(mu, sigma)
 
         return px
+    
+
+class PointNet(Likelihood):
+    """PointNet from Sparse Gaussian Process Variational Autoencoders.
+
+    :param out_dim (int): dimension of the output variable.
+    :param inter_dim (int): dimension of intermediate representation.
+    :param h_dims (list, optional): dimension of the encoding function.
+    :param rho_dims (list, optional): dimension of the shared function.
+    :param min_sigma (float, optional): sets the minimum output sigma.
+    :param init_sigma (float, optional): sets the initial output sigma.
+    :param nonlinearity (function, optional): non-linearity to apply in
+    between layers.
+    """
+    def __init__(self, out_dim, inter_dim, h_dims=(64, 64), rho_dims=(64, 64),
+                 min_sigma=1e-3, init_sigma=None, nonlinearity=F.relu):
+        super().__init__()
+
+        self.out_dim = out_dim
+        self.inter_dim = inter_dim
+
+        # Takes the index of the observation dimension and it's value.
+        self.h = LinearNN(
+            2, inter_dim, h_dims, nonlinearity)
+
+        # Takes the aggregation of the outputs from self.h.
+        self.rho = NNHeteroGaussian(
+            inter_dim, out_dim, rho_dims, min_sigma, init_sigma, nonlinearity)
+
+    def forward(self, z, mask=None):
+        """Returns parameters of a diagonal Gaussian distribution."""
+        out = torch.zeros(z.shape[0], z.shape[1], self.inter_dim)
+
+        # Pass through first network.
+        for dim, z_dim in enumerate(z.transpose(0, 1)):
+            if mask is not None:
+                idx = torch.where(mask[:, dim])[0]
+                z_in = z_dim[idx].unsqueeze(1)
+                z_in = torch.cat([z_in, torch.ones_like(z_in)*dim], 1)
+                out[idx, dim, :] = self.h(z_in)
+            else:
+                z_in = z_dim.unsqueeze(1)
+                torch.cat([z_in, torch.ones_like(z_in)*dim], 1)
+                out[:, dim, :] = self.h(z_in)
+
+        # Aggregation layer.
+        out = torch.sum(out, 1)
+
+        # Pass through second network.
+        pz = self.rho(out)
+
+        return pz
