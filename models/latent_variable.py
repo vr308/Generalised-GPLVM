@@ -9,9 +9,9 @@ import torch
 from torch import nn
 from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
-from .iaf import AutoRegressiveNN
+from models.iaf import AutoRegressiveNN
 import torch.nn.functional as F
-from pyro.distributions.transforms import AffineAutoregressive
+import numpy as np
 
 class LatentVariable(gpytorch.Module):
     
@@ -117,7 +117,17 @@ class IAFEncoder(NNEncoder):
     def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers, n_flows):
         self.context_size = context_size
         super().__init__(n, latent_dim, prior_x, data_dim, layers)
+        self.prior_x = prior_x
+        self.latent_dim = latent_dim
+        self.data_dim = data_dim
+        self.n = n
         self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
+        
+        for i in range(n_flows):
+            self.add_module(f'flows{i}', self.flows[i])
+        
+        self.register_added_loss_term("x_kl")
+        self.register_added_loss_term("x_det_jacobian")
 
     def _get_mu_layers(self, layers):
         return (self.data_dim,) + layers + (self.latent_dim + self.context_size,)
@@ -133,7 +143,13 @@ class IAFEncoder(NNEncoder):
         for flow in self.flows:
             sample = flow.forward(sample, h)
 
-        # DO KL STUFF
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
+        self.update_added_loss_term('x_kl', x_kl)  # Update the KL term with the seed gaussian
+        
+        # add further loss term accounting for jacobian determinant
+        sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
+        self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
+        
         return sample
 
 class IAF(gpytorch.Module):
@@ -157,6 +173,15 @@ class IAF(gpytorch.Module):
             hidden_features=auto_regressive_hidden,
             context_features=context_size,
         )
+        
+        num_layers = len(self.s_t.layers)
+        for i in range(num_layers):
+            self.add_module('flows', self.m_t.layers[i])
+            self.add_module('flows', self.s_t.layers[i])
+        
+        # add params from m_t and s_t so they can be learnt
+        #self.add_module('m_layers', self.m_t.layers)
+        #self.add_module('s_layers', self.s_t.layers)
 
     def determine_log_det_jac(self, sigma_t):
         return torch.log(sigma_t + 1e-6).sum(1)
@@ -171,7 +196,7 @@ class IAF(gpytorch.Module):
         m_t = self.m_t(z, h)
 
         # log |det Jac|
-        self._kl_divergence_ += self.determine_log_det_jac(sigma_t)
+        self._kl_divergence_ = self.determine_log_det_jac(sigma_t)
 
         # transformation
         return sigma_t * z + (1 - sigma_t) * m_t
@@ -218,21 +243,20 @@ class kl_gaussian_loss_term(AddedLossTerm):
         # overcounting the kl term
         return (kl_per_point/self.data_dim)
 
-# class flow_det_loss_term(AddedLossTerm):
+class flow_det_loss_term(AddedLossTerm):
     
-#     def __init__(self, num_flows, n, data_dim):
-#         self.q_x = q_x
-#         self.p_x = p_x
-#         self.n = n
-#         self.data_dim = data_dim
+    def __init__(self, flow_list, n, data_dim):
+        self.flow_list = flow_list
+        self.n = n
+        self.data_dim = data_dim
         
-#     def loss(self): 
-#         # G 
-#         kl_per_latent_dim = kl_divergence(self.q_x, self.p_x).sum(axis=0) # vector of size latent_dim
-#         kl_per_point = kl_per_latent_dim.sum()/self.n # scalar
-#         # inside the forward method of variational ELBO, 
-#         # the added loss terms are expanded (using add_) to take the same 
-#         # shape as the log_lik term (has shape data_dim)
-#         # so they can be added together. Hence, we divide by data_dim to avoid 
-#         # overcounting the kl term
-#         return (kl_per_point/self.data_dim)
+    def loss(self): 
+        # G 
+        det_loss_per_latent_dim = np.array([x._kl_divergence_ for x in self.flow_list]).sum(axis=0)
+        det_loss_per_point = det_loss_per_latent_dim.sum()/self.n # scalar
+        # inside the forward method of variational ELBO, 
+        # the added loss terms are expanded (using add_) to take the same 
+        # shape as the log_lik term (has shape data_dim)
+        # so they can be added together. Hence, we divide by data_dim to avoid 
+        # overcounting the kl term
+        return (det_loss_per_point/self.data_dim)

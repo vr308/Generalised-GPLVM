@@ -59,7 +59,10 @@ class My_GPLVM_Model(BayesianGPLVM):
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-            X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
+            #X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
+            context_size = 3
+            n_flows=2
+            X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
             X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
@@ -82,6 +85,8 @@ class My_GPLVM_Model(BayesianGPLVM):
          valid_indices = np.arange(self.n)
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
+     
+        
 
 if __name__ == '__main__':
     
@@ -102,11 +107,11 @@ if __name__ == '__main__':
     pca = False
     
     # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(3, 2))
+    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(5, 3, 2))
     
     # Likelihood
-    #likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
+    likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
+    #likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     # Declaring objective to be optimised along with optimiser
     mll = VariationalELBO(likelihood, model, num_data=len(Y))
@@ -115,6 +120,8 @@ if __name__ == '__main__':
     {'params': model.parameters()},
     {'params': likelihood.parameters()}
     ], lr=0.01)
+    
+    model.get_trainable_param_names()
     
     # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
     # using the optimizer provided.
@@ -133,19 +140,19 @@ if __name__ == '__main__':
         iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
         loss.backward()
         optimizer.step()
-
+        
     # Plot result
     
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
+    # plt.figure(figsize=(8, 6))
+    # colors = ['r', 'b', 'g']
  
-    X = model.X.q_mu.detach().numpy()
-    #X = model.X().detach().numpy()
-    std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    # X = model.X.q_mu.detach().numpy()
+    # #X = model.X().detach().numpy()
+    # std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        X_i = X[labels == label]
-        scale_i = std[labels == label]
-        plt.scatter(X_i[:, 1], X_i[:, 0], c=[colors[i]], label=label)
-        plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    # for i, label in enumerate(np.unique(labels)):
+    #     X_i = X[labels == label]
+    #     scale_i = std[labels == label]
+    #     plt.scatter(X_i[:, 1], X_i[:, 0], c=[colors[i]], label=label)
+    #     plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
