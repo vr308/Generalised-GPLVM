@@ -133,9 +133,9 @@ class IAFEncoder(NNEncoder):
         return (self.data_dim,) + layers + (self.latent_dim + self.context_size,)
 
     def get_latent_flow_means(self, Y, num_samples):    
-        mu, h = self.get_mu_and_h(Y)
+        flow_mu, h = self.get_mu_and_h(Y)
         for flow in self.flows:
-            flow_mu = flow.forward(mu, h)
+            flow_mu = flow.forward(flow_mu, h)
         return flow_mu
         
     def get_mu_and_h(self, Y, context_size):
