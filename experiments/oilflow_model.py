@@ -30,7 +30,7 @@ def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
     return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
-class My_GPLVM_Model(BayesianGPLVM):
+class OilFlowModel(BayesianGPLVM):
      def __init__(self, n, data_dim, latent_dim, n_inducing, pca=False, nn_layers=None):
          
         self.n = n
@@ -59,15 +59,15 @@ class My_GPLVM_Model(BayesianGPLVM):
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-            #X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
-            context_size = 3
-            n_flows=3
-            X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
+            X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
+            #context_size = 3
+            #n_flows=2
+            #X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
             X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
         
-        super(My_GPLVM_Model, self).__init__(X, q_f)
+        super(OilFlowModel, self).__init__(X, q_f)
         
         # Kernel 
         self.mean_module = ConstantMean(ard_num_dims=latent_dim)
@@ -86,18 +86,13 @@ class My_GPLVM_Model(BayesianGPLVM):
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
      
-     
-     def predict_latent_X_star(self, Y_train, Y_test, elbo):
-         
-         # Freeze gradients corresponding to training ELBO
-         
-         return;
+        
 
 if __name__ == '__main__':
     
     # Setting seed for reproducibility
     
-    torch.manual_seed(7)
+    torch.manual_seed(73)
 
     # Load some data
     
@@ -111,14 +106,8 @@ if __name__ == '__main__':
     n_inducing = 25
     pca = False
     
-    # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(5, 3, 2))
-    
-    # Likelihood
+    model = OilFlowModel(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(5, 3, 2))
     likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    #likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
-
-    # Declaring objective to be optimised along with optimiser
     mll = VariationalELBO(likelihood, model, num_data=len(Y))
     
     optimizer = torch.optim.Adam([
@@ -132,7 +121,7 @@ if __name__ == '__main__':
     # using the optimizer provided.
     
     loss_list = []
-    iterator = trange(5000, leave=True)
+    iterator = trange(10000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
@@ -152,7 +141,6 @@ if __name__ == '__main__':
     colors = ['r', 'b', 'g']
  
     #X = model.X.q_mu.detach().numpy()
-    #X = model.X().detach().numpy()
     X = model.X.mu(Y).detach().numpy()
     #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
@@ -160,5 +148,5 @@ if __name__ == '__main__':
     for i, label in enumerate(np.unique(labels)):
         X_i = X[labels == label]
         #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
+        plt.scatter(X_i[:, 1], X_i[:, 4], c=[colors[i]], label=label)
         #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

@@ -100,7 +100,7 @@ class NNEncoder(LatentVariable):
         sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
         sg = torch.einsum('aij,akj->aik', sg, sg)
 
-        jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-6
+        jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-5
         jitter = torch.cat([jitter for i in range(len(sg))], axis=0)
         sg += jitter
         return sg
@@ -132,10 +132,21 @@ class IAFEncoder(NNEncoder):
     def _get_mu_layers(self, layers):
         return (self.data_dim,) + layers + (self.latent_dim + self.context_size,)
 
-    def forward(self, Y):
+    def get_latent_flow_means(self, Y, num_samples):    
+        mu, h = self.get_mu_and_h(Y)
+        for flow in self.flows:
+            flow_mu = flow.forward(mu, h)
+        return flow_mu
+        
+    def get_mu_and_h(self, Y, context_size):
+        
         mu_and_h = self.mu(Y)
         mu = mu_and_h[:, :-self.context_size]
-        h = mu_and_h[:, self.context_size:]
+        h = mu_and_h[:, -self.context_size:]
+        return mu, h
+    
+    def forward(self, Y):
+        mu, h = self.get_mu_and_h(Y, self.context_size)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         sample = q_x.rsample()
@@ -179,10 +190,6 @@ class IAF(gpytorch.Module):
             self.add_module('flows', self.m_t.layers[i])
             self.add_module('flows', self.s_t.layers[i])
         
-        # add params from m_t and s_t so they can be learnt
-        #self.add_module('m_layers', self.m_t.layers)
-        #self.add_module('s_layers', self.s_t.layers)
-
     def determine_log_det_jac(self, sigma_t):
         return torch.log(sigma_t + 1e-6).sum(1)
 
@@ -259,4 +266,4 @@ class flow_det_loss_term(AddedLossTerm):
         # shape as the log_lik term (has shape data_dim)
         # so they can be added together. Hence, we divide by data_dim to avoid 
         # overcounting the kl term
-        return (det_loss_per_point/self.data_dim)
+        return -1*(det_loss_per_point/self.data_dim)
