@@ -233,13 +233,13 @@ class VariationalLatentVariable(LatentVariable):
         return q_x.rsample()
 
 class PointNetEncoder(LatentVariable):
-    def __init__(self, n, data_dim, latent_dim, X_init, prior_x):
+    def __init__(self, n, data_dim, latent_dim, prior_x, inter_dim=5, h_dims=(5, 5), rho_dims=(5, 5)):
         super().__init__(n, latent_dim)
         
         self.data_dim = data_dim
         self.prior_x = prior_x
-        self.pointnet = PointNet(latent_dim, 10, h_dims=(5, 5), rho_dims=(5, 5),
-                 min_sigma=1e-3, init_sigma=None, nonlinearity=torch.tanh)
+        self.pointnet = PointNet(latent_dim, inter_dim, h_dims=h_dims, rho_dims=rho_dims,
+                 min_sigma=1e-6, init_sigma=None, nonlinearity=torch.tanh)
         self.register_added_loss_term("x_kl")
 
     def forward(self, Y):
