@@ -238,27 +238,24 @@ class PointNetEncoder(LatentVariable):
         
         self.data_dim = data_dim
         self.prior_x = prior_x
-        self.pointnet = PointNet(data_dim, latent_dim, h_dims=(5, 5), rho_dims=(5, 5),
+        self.pointnet = PointNet(latent_dim, 10, h_dims=(5, 5), rho_dims=(5, 5),
                  min_sigma=1e-3, init_sigma=None, nonlinearity=torch.tanh)
         self.register_added_loss_term("x_kl")
 
     def forward(self, Y):
-        # Variational distribution over the latent variable q(x)
-        q_x = torch.distributions.Normal(self.q_mu, torch.nn.functional.softplus(self.q_log_sigma))
+        q_x = self.pointnet(Y)
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
         return q_x.rsample()
 
-# from gpytorch.priors import NormalPrior
+from gpytorch.priors import NormalPrior
 
-# n = 10
-# d = 5
-# q = 2
-# X_init = torch.zeros(n, q)
-# prior_x = NormalPrior(X_init, torch.ones_like(X_init))
+n = 100; d = 9;q = 2
+X_init = torch.zeros(n, q)
+prior_x = NormalPrior(X_init, torch.ones_like(X_init))
 
-# xx = PointNetEncoder(n, d, q, X_init, prior_x)
-# xx.forward(Y) # shapes mismatch??
+pn = PointNetEncoder(n, d, q, X_init, prior_x)
+pn.forward(torch.ones(n, d))
 
 class kl_gaussian_loss_term(AddedLossTerm):
     
