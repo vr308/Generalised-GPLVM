@@ -248,15 +248,6 @@ class PointNetEncoder(LatentVariable):
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
         return q_x.rsample()
 
-from gpytorch.priors import NormalPrior
-
-n = 100; d = 9;q = 2
-X_init = torch.zeros(n, q)
-prior_x = NormalPrior(X_init, torch.ones_like(X_init))
-
-pn = PointNetEncoder(n, d, q, X_init, prior_x)
-pn.forward(torch.ones(n, d))
-
 class kl_gaussian_loss_term(AddedLossTerm):
     
     def __init__(self, q_x, p_x, n, data_dim):
