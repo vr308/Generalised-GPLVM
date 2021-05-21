@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Demo script for bGPLVM Gaussian with different inference modes. 
+Script for experiments with qPCR data
+
+5 different inference modes:
+    
+   models = ['point','map','gaussian','nn_gaussian','iaf']
 
 """
-
-# TODO's:
-# Snaphot param state and save
-# Flexible variational family
 
 from utils.data import load_real_data 
 from models.bayesianGPLVM import BayesianGPLVM
@@ -30,7 +30,7 @@ def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
     return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
-class OilFlowModel(BayesianGPLVM):
+class qPCRModel(BayesianGPLVM):
      def __init__(self, n, data_dim, latent_dim, n_inducing, pca=False, nn_layers=None):
          
         self.n = n
@@ -86,8 +86,6 @@ class OilFlowModel(BayesianGPLVM):
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
      
-        
-
 if __name__ == '__main__':
     
     # Setting seed for reproducibility
@@ -137,16 +135,16 @@ if __name__ == '__main__':
         
     # Plot result
     
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
+    # plt.figure(figsize=(8, 6))
+    # colors = ['r', 'b', 'g']
  
-    #X = model.X.q_mu.detach().numpy()
-    X = model.X.mu(Y).detach().numpy()
-    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    # X = model.X.q_mu.detach().numpy()
+    # #X = model.X().detach().numpy()
+    # std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        X_i = X[labels == label]
-        #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 1], X_i[:, 4], c=[colors[i]], label=label)
-        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    # for i, label in enumerate(np.unique(labels)):
+    #     X_i = X[labels == label]
+    #     scale_i = std[labels == label]
+    #     plt.scatter(X_i[:, 1], X_i[:, 0], c=[colors[i]], label=label)
+    #     plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

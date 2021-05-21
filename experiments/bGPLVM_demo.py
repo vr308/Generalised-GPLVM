@@ -101,8 +101,8 @@ if __name__ == '__main__':
 
     # Load some data
     
-    # N, d, q, X, Y, labels = load_real_data('movie_lens')
-    N, d, q, X, Y, labels = load_real_data('oilflow')
+    N, d, q, X, Y, labels = load_real_data('movie_lens')
+    #N, d, q, X, Y, labels = load_real_data('oilflow')
       
     # Setting shapes
     N = len(Y)
@@ -112,11 +112,11 @@ if __name__ == '__main__':
     pca = False
     
     # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(5, 3, 2))
+    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=None)
     
     # Likelihood
-    likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    #likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
+    #likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
+    likelihood = GaussianLikelihoodWithMissingObs()
 
     # Declaring objective to be optimised along with optimiser
     mll = VariationalELBO(likelihood, model, num_data=len(Y))
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample = model.sample_latent_variable(Y)  # a full sample returns latent x across all N
+        sample = model.sample_latent_variable()  # a full sample returns latent x across all N
         sample_batch = sample[batch_index]
         output_batch = model(sample_batch)
         loss = -mll(output_batch, Y[batch_index].T).sum()
@@ -148,17 +148,17 @@ if __name__ == '__main__':
         
     # Plot result
     
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
+    # plt.figure(figsize=(8, 6))
+    # colors = ['r', 'b', 'g']
  
-    #X = model.X.q_mu.detach().numpy()
-    #X = model.X().detach().numpy()
-    X = model.X.mu(Y).detach().numpy()
-    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    # #X = model.X.q_mu.detach().numpy()
+    # #X = model.X().detach().numpy()
+    # X = model.X.mu(Y).detach().numpy()
+    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        X_i = X[labels == label]
-        #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
-        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    # for i, label in enumerate(np.unique(labels)):
+    #     X_i = X[labels == label]
+    #     #scale_i = std[labels == label]
+    #     plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
+    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
