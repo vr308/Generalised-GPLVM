@@ -139,7 +139,7 @@ class PointNet(Likelihood):
                 out[idx, dim, :] = self.h(z_in)
             else:
                 z_in = z_dim.unsqueeze(1)
-                torch.cat([z_in, torch.ones_like(z_in)*dim], 1)
+                z_in = torch.cat([z_in, torch.ones_like(z_in)*dim], 1)
                 out[:, dim, :] = self.h(z_in)
 
         # Aggregation layer.
