@@ -154,10 +154,10 @@ class IAFEncoder(NNEncoder):
         mu, h = self.get_mu_and_h(Y)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
-        gauss_base_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
+        flow_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
         
         for flow in self.flows:
-           flow_samples = flow.forward(gauss_base_samples, h)
+           flow_samples = flow.forward(flow_samples, h)
          
         return flow_samples
         
