@@ -161,7 +161,7 @@ class IAFEncoder(NNEncoder):
          
         return flow_samples
         
-    def get_mu_and_h(self, Y, context_size):
+    def get_mu_and_h(self, Y):
         
         mu_and_h = self.mu(Y)
         mu = mu_and_h[:, :-self.context_size]
