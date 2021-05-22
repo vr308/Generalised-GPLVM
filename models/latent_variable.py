@@ -151,7 +151,7 @@ class IAFEncoder(NNEncoder):
         return flow_mu
     
     def get_latent_flow_samples(self, Y):    
-        mu, h = self.get_mu_and_h(Y, self.context_size)
+        mu, h = self.get_mu_and_h(Y)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         gauss_base_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
@@ -169,7 +169,7 @@ class IAFEncoder(NNEncoder):
         return mu, h
     
     def forward(self, Y):
-        mu, h = self.get_mu_and_h(Y, self.context_size)
+        mu, h = self.get_mu_and_h(Y)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         sample = q_x.rsample()
