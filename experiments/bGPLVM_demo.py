@@ -38,7 +38,7 @@ class My_GPLVM_Model(BayesianGPLVM):
         
         # Locations Z_{d} corresponding to u_{d}, they can be randomly initialized or 
         # regularly placed with shape (D x n_inducing x latent_dim).
-        self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
+        self.inducing_inputs = torch.randn(n_inducing, latent_dim)
     
         # Sparse Variational Formulation
         
@@ -46,7 +46,7 @@ class My_GPLVM_Model(BayesianGPLVM):
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
     
         # Define prior for X
-        X_prior_mean = torch.zeros(n, latent_dim)  # shape: N x Q
+        X_prior_mean = torch.zeros(self.n, latent_dim)  # shape: N x Q
     
         # Initialise X with PCA or 0s.
         if pca == True:
@@ -62,10 +62,10 @@ class My_GPLVM_Model(BayesianGPLVM):
             #X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
             context_size = 3
             n_flows=3
-            X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
+            X = IAFEncoder(self.n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
+            X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
@@ -86,12 +86,6 @@ class My_GPLVM_Model(BayesianGPLVM):
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
      
-     
-     def predict_latent_X_star(self, Y_train, Y_test, elbo):
-         
-         # Freeze gradients corresponding to training ELBO
-         
-         return;
 
 if __name__ == '__main__':
     
@@ -101,22 +95,22 @@ if __name__ == '__main__':
 
     # Load some data
     
-    N, d, q, X, Y, labels = load_real_data('movie_lens')
-    #N, d, q, X, Y, labels = load_real_data('oilflow')
+    #N, d, q, X, Y, labels = load_real_data('movie_lens')
+    N, d, q, X, Y, labels = load_real_data('oilflow')
       
     # Setting shapes
     N = len(Y)
     data_dim = Y.shape[1]
     latent_dim = 10
     n_inducing = 25
-    pca = False
+    pca = True
     
     # Model
     model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=None)
     
     # Likelihood
-    #likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    likelihood = GaussianLikelihoodWithMissingObs()
+    likelihood = GaussianLikelihood()
+    #likelihood = GaussianLikelihoodWithMissingObs()
 
     # Declaring objective to be optimised along with optimiser
     mll = VariationalELBO(likelihood, model, num_data=len(Y))
@@ -132,7 +126,7 @@ if __name__ == '__main__':
     # using the optimizer provided.
     
     loss_list = []
-    iterator = trange(5000, leave=True)
+    iterator = trange(15000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
@@ -148,17 +142,17 @@ if __name__ == '__main__':
         
     # Plot result
     
-    # plt.figure(figsize=(8, 6))
-    # colors = ['r', 'b', 'g']
+    plt.figure(figsize=(8, 6))
+    colors = ['r', 'b', 'g']
  
-    # #X = model.X.q_mu.detach().numpy()
-    # #X = model.X().detach().numpy()
-    # X = model.X.mu(Y).detach().numpy()
-    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    X = model.X.q_mu.detach().numpy()
+    #X = model.X().detach().numpy()
+    #X = model.X.mu(Y).detach().numpy()
+    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    # for i, label in enumerate(np.unique(labels)):
-    #     X_i = X[labels == label]
-    #     #scale_i = std[labels == label]
-    #     plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
-    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    for i, label in enumerate(np.unique(labels)):
+        X_i = X[labels == label]
+        #scale_i = std[labels == label]
+        plt.scatter(X_i[:, 0], X_i[:, 1], c=[colors[i]], label=label)
+        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

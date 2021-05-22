@@ -30,17 +30,25 @@ class LatentVariable(gpytorch.Module):
     def forward(self, x):
         raise NotImplementedError
         
+    def reset(self):
+         raise NotImplementedError
+        
 class PointLatentVariable(LatentVariable):
-    def __init__(self, n, latent_dim, X_init):
+    def __init__(self, X_init):
+        n, latent_dim = X_init.shape
         super().__init__(n, latent_dim)
         self.register_parameter('X', X_init)
 
     def forward(self):
         return self.X
+    
+    def reset(self, X_init_test):
+        self.__init__(X_init_test)
         
 class MAPLatentVariable(LatentVariable):
     
-    def __init__(self, n, latent_dim, X_init, prior_x):
+    def __init__(self, X_init, prior_x):
+        n, latent_dim = X_init.shape
         super().__init__(n, latent_dim)
         self.prior_x = prior_x
         self.register_parameter('X', X_init)
@@ -48,6 +56,9 @@ class MAPLatentVariable(LatentVariable):
 
     def forward(self):
         return self.X
+    
+    def reset(self, X_init_test, prior_x_test):
+        self.__init__(X_init_test, prior_x_test)
 
 class NNEncoder(LatentVariable):    
     def __init__(self, n, latent_dim, prior_x, data_dim, layers):
@@ -133,11 +144,22 @@ class IAFEncoder(NNEncoder):
     def _get_mu_layers(self, layers):
         return (self.data_dim,) + layers + (self.latent_dim + self.context_size,)
 
-    def get_latent_flow_means(self, Y, num_samples):    
+    def get_latent_flow_means(self, Y):    
         flow_mu, h = self.get_mu_and_h(Y)
         for flow in self.flows:
             flow_mu = flow.forward(flow_mu, h)
         return flow_mu
+    
+    def get_latent_flow_samples(self, Y):    
+        mu, h = self.get_mu_and_h(Y, self.context_size)
+        sg = self.sigma(Y)
+        q_x = torch.distributions.MultivariateNormal(mu, sg)
+        gauss_base_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
+        
+        for flow in self.flows:
+           flow_samples = flow.forward(gauss_base_samples, h)
+         
+        return flow_samples
         
     def get_mu_and_h(self, Y, context_size):
         
@@ -211,7 +233,8 @@ class IAF(gpytorch.Module):
 
 class VariationalLatentVariable(LatentVariable):
     
-    def __init__(self, n, data_dim, latent_dim, X_init, prior_x):
+    def __init__(self, X_init, prior_x, data_dim):
+        n, latent_dim = X_init.shape
         super().__init__(n, latent_dim)
         
         self.data_dim = data_dim
@@ -231,6 +254,9 @@ class VariationalLatentVariable(LatentVariable):
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
         return q_x.rsample()
+    
+    def reset(self, X_init, prior_x, data_dim):
+        self.__init__(X_init, prior_x, data_dim)
 
 class PointNetEncoder(LatentVariable):
     def __init__(self, n, data_dim, latent_dim, prior_x, inter_dim=5, h_dims=(5, 5), rho_dims=(5, 5)):
@@ -247,6 +273,47 @@ class PointNetEncoder(LatentVariable):
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
         return q_x.rsample()
+    
+##### WIP
+
+# def PointNetIAF(IAFEncoder):
+#     def __init__(self, n, latent_dim, context_size, prior_x, data_dim, layers, n_flows):
+#         self.context_size = context_size
+#         super().__init__(n, latent_dim, prior_x, data_dim, layers)
+#         self.prior_x = prior_x
+#         self.latent_dim = latent_dim
+#         self.data_dim = data_dim
+#         self.n = n
+#         self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
+#         self.pointnet = PointNet(latent_dim, inter_dim, h_dims=h_dims, rho_dims=rho_dims,
+#                  min_sigma=1e-6, init_sigma=None, nonlinearity=torch.tanh)
+        
+#         for i in range(n_flows):
+#             self.add_module(f'flows{i}', self.flows[i])
+        
+#         self.register_added_loss_term("x_kl")
+#         self.register_added_loss_term("x_det_jacobian")
+
+#         ### Notes from A
+#         # Just re-write mu and sigma methods 
+            
+#     def forward(self, Y):
+#         mu, h = self.get_mu_and_h(Y, self.context_size)
+#         sg = self.sigma(Y)
+#         q_x = torch.distributions.MultivariateNormal(mu, sg)
+#         sample = q_x.rsample()
+
+#         for flow in self.flows:
+#             sample = flow.forward(sample, h)
+
+#         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
+#         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term with the seed gaussian
+        
+#         # add further loss term accounting for jacobian determinant
+#         sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
+#         self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
+        
+#         return sample
 
 class kl_gaussian_loss_term(AddedLossTerm):
     

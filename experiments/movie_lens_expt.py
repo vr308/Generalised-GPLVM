@@ -170,17 +170,17 @@ if __name__ == '__main__':
             
     # Plot result
     
-    # plt.figure(figsize=(8, 6))
-    # colors = ['r', 'b', 'g']
+    plt.figure(figsize=(8, 6))
+    colors = ['r', 'b', 'g']
  
-    # X = model.X.X.detach().numpy()
-    # #X = model.X.q_mu.detach().numpy()
-    # #X = model.X.mu(Y).detach().numpy()
-    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    #X = model.X.X.detach().numpy()
+    X = model.X.q_mu.detach().numpy()
+    X = model.X.mu(Y).detach().numpy()
+    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    # for i, label in enumerate(np.unique(labels)):
-    #     X_i = X[labels == label]
-    #     #scale_i = std[labels == label]
-    #     plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
-    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    for i, label in enumerate(np.unique(labels)):
+        #X_i = X[labels == label]
+        #scale_i = std[labels == label]
+        plt.scatter(X_i[:, 0], X_i[:, 9], c=[colors[i]], label=label)
+        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

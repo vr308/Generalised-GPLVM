@@ -28,6 +28,8 @@ from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
+from sklearn.model_selection import train_test_split
+
 
 def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
@@ -39,9 +41,9 @@ class OilFlowModel(BayesianGPLVM):
         self.n = n
         self.batch_shape = torch.Size([data_dim])
         
-        # Locations Z_{d} corresponding to u_{d}, they can be randomly initialized or 
+        # Locations Z corresponding to u_{d}, they can be randomly initialized or 
         # regularly placed with shape (D x n_inducing x latent_dim).
-        self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
+        self.inducing_inputs = torch.randn(n_inducing, latent_dim)
     
         # Sparse Variational Formulation
         q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=self.batch_shape) 
@@ -52,7 +54,6 @@ class OilFlowModel(BayesianGPLVM):
         #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
         self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
-
 
      def forward(self, X):
         mean_x = self.mean_module(X)
@@ -66,30 +67,33 @@ class OilFlowModel(BayesianGPLVM):
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
      
-
 if __name__ == '__main__':
     
     # Setting seed for reproducibility
-    
-    torch.manual_seed(3)
+    SEED = 3
+    torch.manual_seed(SEED)
 
     # Load some data
     
     N, d, q, X, Y, labels = load_real_data('oilflow')
-      
+    
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
+
     # Setting shapes
-    N = len(Y)
-    data_dim = Y.shape[1]
+    N = len(Y_train)
+    data_dim = Y_train.shape[1]
     latent_dim = 10
     n_inducing = 50
     pca = True
     
     # Run all 5 models and store results
     
-    models = ['point','map','gaussian','nn_gaussian','iaf']
+    models = ['point','map','gauss','nn_gauss','iaf']
     
     model_dict = {}
     losses_dict = {}
+    noise_trace_dict = {}
     
     for model_name in models:
         
@@ -98,9 +102,9 @@ if __name__ == '__main__':
     
         # Initialise X with PCA or 0s.
         if pca == True:
-             X_init = _init_pca(Y, latent_dim) # Initialise X to PCA 
+              X_init = _init_pca(Y_train, latent_dim) # Initialise X to PCA 
         else:
-             X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
+              X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
         
         # Each inference model differs in its latent variable configuration / 
         # LatentVariable (X)
@@ -108,26 +112,31 @@ if __name__ == '__main__':
         nn_layers = None
         if model_name == 'point':
             
-            X = PointLatentVariable(N, latent_dim, X_init)
+            ae = False
+            X = PointLatentVariable(X_init)
             
         elif model_name == 'map':
-            
+                        
+            ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
             X = MAPLatentVariable(N, latent_dim, X_init, prior_x)
             
-        elif model_name == 'gaussian':
+        elif model_name == 'gauss':
             
+            ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
             X = VariationalLatentVariable(N, data_dim, latent_dim, X_init, prior_x)
         
-        elif model_name == 'nn_gaussian':
+        elif model_name == 'nn_gauss':
             
+            ae = True
             nn_layers = (5,3,2)
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
             X = NNEncoder(N, latent_dim, prior_x, data_dim, layers=nn_layers)
             
         elif model_name == 'iaf':
             
+            ae = True
             nn_layers = (5,3,2)
             context_size = 5
             n_flows=2
@@ -137,7 +146,7 @@ if __name__ == '__main__':
         
         model = OilFlowModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
         likelihood = GaussianLikelihood()
-        elbo = VariationalELBO(likelihood, model, num_data=len(Y))
+        elbo = VariationalELBO(likelihood, model, num_data=len(Y_train))
     
         optimizer = torch.optim.Adam([
         {'params': model.parameters()},
@@ -154,7 +163,7 @@ if __name__ == '__main__':
         loss_list = []
         noise_trace = []
         
-        iterator = trange(10000, leave=True)
+        iterator = trange(3000, leave=True)
         batch_size = 100
         for i in iterator: 
             batch_index = model._get_batch_idx(batch_size)
@@ -172,24 +181,74 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
             
-        # Save models 
+        # Save models & training info
         print(model.covar_module.base_kernel.lengthscale)
         model_dict[model_name] = model
         losses_dict[model_name] = loss_list
+        noise_trace_dict[model_name] = noise_trace
+        
+        # Compute latent test & reconstructions
+        if ae is True:
+            if model_name != 'iaf':
+                X_test_mean, X_test_covar = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+            else:
+                X_test_mean, X_flow_samples = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+        
+        else: # either point, map or gauss
+            X = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+                
+        
+        # # Compute training and test reconstructions
+        
+        # y_test_pred_mean, y_test_pred_covar = reconstruct_y(self, X_test_mean, Y_test, ae=ae, model_name=model_name)
+        # y_train_pred_mean, y_train_pred_covar = reconstruct_y(self, X_train_mean, Y_train, ae=ae, model_name=model_name)
+
+        # ################################
+        # # # Compute the metrics:
+        
+        # # 1) Reconstruction error
+        
+        # mse_test_gaussian = metrics.mean_reconstruction_error(Y_test, Y_test_recon)
+        # mse_test_flow = metrics.mean_reconstruction_error(Y_test, Y_test_flow_recon)
+        
+        # print(f'Reconstruction error {model_name} = ' + str(mse_test_gaussian))
+        # print(f'Reconstruction error ' + model + '(with flows) = ' + str(mse_test_flow))
+        
+        # # # 2) ELBO Loss
+        
+        # print('Final -ELBO ' + model + '(no flows) = ' + str(losses[-1]))
+        # print('Final -ELBO ' + model + '(with flows) = ' + str(losses_flow[-1]))
+        
+        # # 3) Negative Test log-likelihood
+        
+        # metrics.test_log_likelihood(gplvm, Y_test, test_dist)
+        # metrics.test_log_likelihood(gplvm_flow, Y_test, test_flow_dist)
+    
+        # print('Final TLL ' + model + '(no flows) = ' + str(nll))
+        # print('Final TLL ' + model + '(with flows) = ' + str(nll_flow))
+        
+        # metrics_df = pd.DataFrame(columns=['-elbo','mse','tll'], index=['Gaussian','Flows'])
+        
+        # metrics_df['-elbo'] = [losses[-1], losses_flow[-1]]
+        # metrics_df['mse'] = [mse_test_gaussian.item(), mse_test_flow.item()]
+        # metrics_df['nll'] = [np.mean(nll), np.mean(nll_flow)]
+        # #metrics_df['se_nll'] = [np.std(nll)/np.sqrt(40), np.std(nll_flow)/np.sqrt(40)]
+        
+        # metrics_df.to_csv('metrics/metrics_' + model + '_' + dataset_name + '.csv')
             
-    # Plot result
+    # # Plot result
     
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
+    # plt.figure(figsize=(8, 6))
+    # colors = ['r', 'b', 'g']
  
-    X = model.X.X.detach().numpy()
-    #X = model.X.q_mu.detach().numpy()
-    #X = model.X.mu(Y).detach().numpy()
-    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    # X = model.X.X.detach().numpy()
+    # #X = model.X.q_mu.detach().numpy()
+    # #X = model.X.mu(Y).detach().numpy()
+    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        X_i = X[labels == label]
-        #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
-        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    # for i, label in enumerate(np.unique(labels)):
+    #     X_i = X[labels == label]
+    #     #scale_i = std[labels == label]
+    #     plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
+    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
