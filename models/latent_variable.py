@@ -205,6 +205,9 @@ class VariationalIAF(LatentVariable):
         self.register_added_loss_term("x_kl")
         self.register_added_loss_term("x_det_jacobian")
 
+        jitter = torch.eye(latent_dim).unsqueeze(0)*1e-5
+        self.jitter = torch.cat([jitter for i in range(n)], axis=0)
+
     def get_latent_flow_means(self):    
         flow_mu, h = self.get_mu_and_h()
         for flow in self.flows:
@@ -231,21 +234,29 @@ class VariationalIAF(LatentVariable):
         sg = self.sigma_factor
         sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
         sg = torch.einsum('aij,akj->aik', sg, sg)
-
-        jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-5
-        jitter = torch.cat([jitter for i in range(len(sg))], axis=0)
-        sg += jitter
+        sg += self.jitter
         return sg
 
-    def forward(self, Y):
+    def forward(self, batch_idx=None):
         mu, h = self.get_mu_and_h()
         sg = self.sigma()
+
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+
+        mu = mu[batch_idx, ...]
+        sg = sg[batch_idx, ...]
+        h = h[batch_idx, ...]
+
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         sample = q_x.rsample()
 
         for flow in self.flows:
             sample = flow.forward(sample, h)
 
+        prior_x = self.prior_x
+        prior_x.loc = prior_x.loc[:len(batch_idx), ...]
+        prior_x.covariance_matrix = prior_x.covariance_matrix[:len(batch_idx), ...]
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)        
         sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
 
@@ -394,7 +405,7 @@ class kl_gaussian_loss_term(AddedLossTerm):
     def loss(self): 
         # G 
         kl_per_latent_dim = kl_divergence(self.q_x, self.p_x).sum(axis=0) # vector of size latent_dim
-        kl_per_point = kl_per_latent_dim.sum()/self.n # scalar
+        kl_per_point = kl_per_latent_dim.sum()/self.p_x.loc.shape[0] # scalar
         # inside the forward method of variational ELBO, 
         # the added loss terms are expanded (using add_) to take the same 
         # shape as the log_lik term (has shape data_dim)

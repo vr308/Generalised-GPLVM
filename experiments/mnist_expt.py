@@ -5,7 +5,7 @@ from tqdm import trange
 import matplotlib.pyplot as plt
 plt.ion(); plt.style.use('ggplot')
 
-from utils.data import generate_synthetic_data
+from utils.data import load_real_data
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import VariationalIAF
 from models.likelihoods import GaussianLikelihoodWithMissingObs
@@ -61,8 +61,7 @@ def train(model, likelihood, Y, steps=1000, batch_size=100):
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample = model.sample_latent_variable(Y)
-        sample_batch = sample[batch_index]
+        sample_batch = model.sample_latent_variable(batch_idx=batch_index)
         output_batch = model(sample_batch)
         loss = -elbo(output_batch, Y[batch_index].T).sum()
         losses.append(loss.item())
@@ -78,11 +77,28 @@ if __name__ == '__main__':
 
     torch.manual_seed(42)
 
-    N, d, q, X, Y, labels = generate_synthetic_data(n=300, x_type='normal', y_type='hi_dim')
-    model = GPLVM(N, d, q, n_inducing=25)
+    n, d, q, X, Y, lb = load_real_data('mnist')
+    q = 2; Y /= 255
+
+    # remove some obs from Y
+    Y_full = Y.clone()
+    idx_a = np.random.choice(range(n), n * (d//2))
+    idx_b = np.random.choice(range(d), n * (d//2))
+    Y[idx_a, idx_b] = np.nan
+    # (Y.isnan().sum(axis=1) == d).any() # False hopefully
+
+    # plt.imshow(Y[0].reshape(28, 28))
+
+    model = GPLVM(n, d, q, n_inducing=20, n_flows=30)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
-    losses = train(model, likelihood, Y, steps=3000, batch_size=250)
 
-    X_new = model.X.get_latent_flow_means().detach()
-    plot_y_reconstruction(X_new, Y, model(X_new).loc.detach().T)
+    if torch.cuda.is_available(): 
+        device = 'cuda' 
+        model = model.cuda() 
+        likelihood = likelihood.cuda() 
+    else: 
+        device = 'cpu'
 
+    Y = torch.tensor(Y, device=device)
+    model.X.jitter = model.X.jitter.to(device=device)
+    losses = train(model, likelihood, Y, steps=10000, batch_size=500)
