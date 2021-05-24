@@ -46,17 +46,19 @@ class BayesianGPLVM(ApproximateGP):
     def initialise_model_test(self, Y_test, prior_x=None, pca=True):
         
         test_model = deepcopy(self) # A says better to re-initialise
+        # self is in eval mode - but test_model needs to be in train_mode
+        test_model.train()
         test_model.n = len(Y_test)
-        latent_dim = self.X.shape[1] # N x Q
+        latent_dim = self.X.latent_dim #q
         
         # reset the variational latent variable - A says be careful about random seed
         # Initialise X with PCA or 0s.
         if pca == True:
              X_init = _init_pca(Y_test, latent_dim) # Initialise X to PCA 
         else:
-             X_init = torch.nn.Parameter(torch.zeros(test_model.n, latent_dim))
+             X_init = torch.nn.Parameter(torch.randn(test_model.n, latent_dim))
         
-        kwargs = {'X_init': X_init}
+        kwargs = {'X_init_test': X_init}
         if prior_x is not None:
             kwargs['prior_x'] = prior_x
         if hasattr(test_model.X, 'data_dim'):
@@ -71,7 +73,7 @@ class BayesianGPLVM(ApproximateGP):
         
         return test_model
     
-    def predict_latent(self, Y_train, Y_test, trained_model, lr, likelihood, prior_x=None, ae=True, model_name='nn_gauss', pca=True):
+    def predict_latent(self, Y_train, Y_test, lr, likelihood, prior_x=None, ae=True, model_name='nn_gauss', pca=True):
         
         if ae is True: # A says make into a LatentVariable attribute
            
@@ -99,10 +101,15 @@ class BayesianGPLVM(ApproximateGP):
             # Initialise fresh test optimizer 
             optimizer = torch.optim.Adam(test_model.X.parameters(), lr=lr)
             elbo = VariationalELBO(likelihood, test_model, num_data=len(Y_test))
+            
+            print('---------------Learning variational parameters for test ------------------')
+            for name, param in test_model.X.named_parameters():
+                print(name)
+                print(param)
                 
             loss_list = []
-            iterator = trange(5000, leave=True)
-            batch_size = 100
+            iterator = trange(15000, leave=True)
+            batch_size = len(Y_test) if len(Y_test) < 100 else 100
             for i in iterator: 
                 batch_index = test_model._get_batch_idx(batch_size)
                 optimizer.zero_grad()
@@ -115,7 +122,7 @@ class BayesianGPLVM(ApproximateGP):
                 loss.backward()
                 optimizer.step()
                 
-            return test_model.X.detach()
+            return loss_list, test_model.X
         
     def reconstruct_y(self, X, Y, ae=True, model_name='nn_gauss'):
         

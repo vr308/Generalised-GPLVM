@@ -29,7 +29,7 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 from sklearn.model_selection import train_test_split
-
+plt.style.use('seaborn-muted')
 
 def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
@@ -51,8 +51,8 @@ class OilFlowModel(BayesianGPLVM):
         super(OilFlowModel, self).__init__(X, q_f)
         
         # Kernel 
-        #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        self.mean_module = ZeroMean()
+        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
+        #self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
 
      def forward(self, X):
@@ -70,7 +70,7 @@ class OilFlowModel(BayesianGPLVM):
 if __name__ == '__main__':
     
     # Setting seed for reproducibility
-    SEED = 3
+    SEED = 7
     torch.manual_seed(SEED)
 
     # Load some data
@@ -79,18 +79,21 @@ if __name__ == '__main__':
     
     Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
     lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
-
+    
+    Y_train = torch.Tensor(Y_train)
+    Y_test = torch.Tensor(Y_test)
+    
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
     latent_dim = 10
-    n_inducing = 50
+    n_inducing = 25
     pca = True
     
     # Run all 5 models and store results
     
-    models = ['point','map','gauss','nn_gauss','iaf']
-    
+    #models = ['point','map','gauss','nn_gauss','iaf']
+    models= ['point']
     model_dict = {}
     losses_dict = {}
     noise_trace_dict = {}
@@ -109,7 +112,10 @@ if __name__ == '__main__':
         # Each inference model differs in its latent variable configuration / 
         # LatentVariable (X)
         
+        # defaults - if a model needs them they are internally assigned
         nn_layers = None
+        prior_x = None
+        
         if model_name == 'point':
             
             ae = False
@@ -119,7 +125,7 @@ if __name__ == '__main__':
                         
             ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = MAPLatentVariable(N, latent_dim, X_init, prior_x)
+            X = MAPLatentVariable(X_init, prior_x)
             
         elif model_name == 'gauss':
             
@@ -140,6 +146,7 @@ if __name__ == '__main__':
             nn_layers = (5,3,2)
             context_size = 5
             n_flows=2
+            prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
             X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
             
         # Initialise model, likelihood, elbo and optimizer
@@ -163,7 +170,7 @@ if __name__ == '__main__':
         loss_list = []
         noise_trace = []
         
-        iterator = trange(3000, leave=True)
+        iterator = trange(15000, leave=True)
         batch_size = 100
         for i in iterator: 
             batch_index = model._get_batch_idx(batch_size)
@@ -171,10 +178,10 @@ if __name__ == '__main__':
             if model_name in ['point','map', 'gaussian']:
                 sample = model.sample_latent_variable()  # a full sample returns latent x across all N
             else:
-                sample = model.sample_latent_variable()
+                sample = model.sample_latent_variable(Y_train)
             sample_batch = sample[batch_index]
             output_batch = model(sample_batch)
-            loss = -elbo(output_batch, Y[batch_index].T).sum()
+            loss = -elbo(output_batch, Y_train[batch_index].T).sum()
             loss_list.append(loss.item())
             noise_trace.append(np.round(likelihood.noise_covar.noise.item(),3))
             iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
@@ -187,15 +194,34 @@ if __name__ == '__main__':
         losses_dict[model_name] = loss_list
         noise_trace_dict[model_name] = noise_trace
         
-        # Compute latent test & reconstructions
+        #Compute latent test & reconstructions
+        model.eval()
+        likelihood.eval()
+        
         if ae is True:
             if model_name != 'iaf':
-                X_test_mean, X_test_covar = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+                X_test_mean, X_test_covar = model.predict_latent(Y_train, 
+                                                                  Y_test, 
+                                                                  optimizer.defaults['lr'], 
+                                                                  likelihood, 
+                                                                  prior_x=prior_x, 
+                                                                  ae=True, 
+                                                                  model_name='nn_gauss', 
+                                                                  pca=pca)
             else:
-                X_test_mean, X_flow_samples = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+                X_test_mean, X_flow_samples = model.predict_latent(Y_train, 
+                                                                    Y_test, 
+                                                                    optimizer.defaults['lr'], 
+                                                                    likelihood, 
+                                                                    prior_x = prior_x,
+                                                                    ae=True, 
+                                                                    model_name='iaf',
+                                                                    pca=pca)
         
         else: # either point, map or gauss
-            X = model.predict_latent(Y_train, Y_test, model, optimizer, elbo, ae=ae, model_name=model_name)
+            losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
+                                      likelihood, prior_x=prior_x, ae=ae, 
+                                      model_name=model_name,pca=pca)
                 
         
         # # Compute training and test reconstructions
@@ -241,14 +267,15 @@ if __name__ == '__main__':
     # plt.figure(figsize=(8, 6))
     # colors = ['r', 'b', 'g']
  
-    # X = model.X.X.detach().numpy()
+    # X = X_test.X.detach()
+    # X = model.X.X.detach()
     # #X = model.X.q_mu.detach().numpy()
     # #X = model.X.mu(Y).detach().numpy()
     # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
     # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    # for i, label in enumerate(np.unique(labels)):
-    #     X_i = X[labels == label]
+    # for i, label in enumerate(np.unique(lb_train)):
+    #     X_i = X[lb_train == label]
     #     #scale_i = std[labels == label]
-    #     plt.scatter(X_i[:, 2], X_i[:, 8], c=[colors[i]], label=label)
+    #     plt.scatter(X_i[:, 0], X_i[:, 1], c=[colors[i]], label=label)
     #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

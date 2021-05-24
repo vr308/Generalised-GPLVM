@@ -13,6 +13,7 @@ from utils.data import load_real_data
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import *
 from matplotlib import pyplot as plt
+from sklearn.model_selection import train_test_split
 import torch
 import numpy as np
 from tqdm import trange
@@ -50,12 +51,11 @@ class My_GPLVM_Model(BayesianGPLVM):
     
         # Initialise X with PCA or 0s.
         if pca == True:
-             X_init = _init_pca(Y, latent_dim) # Initialise X to PCA 
+             X_init = _init_pca(Y_train, latent_dim) # Initialise X to PCA 
         else:
              X_init = torch.nn.Parameter(torch.zeros(n, latent_dim))
           
         # LatentVariable (X)
-        #X = PointLatentVariable(n, latent_dim, X_init)
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
@@ -64,8 +64,10 @@ class My_GPLVM_Model(BayesianGPLVM):
             n_flows=3
             X = IAFEncoder(self.n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
-            prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
+            #prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+            #X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
+            X = PointLatentVariable(X_init)
+
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
         
@@ -90,21 +92,27 @@ class My_GPLVM_Model(BayesianGPLVM):
 if __name__ == '__main__':
     
     # Setting seed for reproducibility
-    
-    torch.manual_seed(7)
+    SEED = 7
+    torch.manual_seed(SEED)
 
     # Load some data
     
     #N, d, q, X, Y, labels = load_real_data('movie_lens')
     N, d, q, X, Y, labels = load_real_data('oilflow')
-      
+    
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=100, random_state=SEED)
+    
+    Y_train = torch.Tensor(Y_train)
+    Y_test = torch.Tensor(Y_test)
+    
     # Setting shapes
-    N = len(Y)
-    data_dim = Y.shape[1]
+    N = len(Y_train)
+    data_dim = Y_train.shape[1]
     latent_dim = 10
     n_inducing = 25
     pca = True
-    
+      
     # Model
     model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=None)
     
@@ -113,7 +121,7 @@ if __name__ == '__main__':
     #likelihood = GaussianLikelihoodWithMissingObs()
 
     # Declaring objective to be optimised along with optimiser
-    mll = VariationalELBO(likelihood, model, num_data=len(Y))
+    mll = VariationalELBO(likelihood, model, num_data=len(Y_train))
     
     optimizer = torch.optim.Adam([
     {'params': model.parameters()},
@@ -134,7 +142,7 @@ if __name__ == '__main__':
         sample = model.sample_latent_variable()  # a full sample returns latent x across all N
         sample_batch = sample[batch_index]
         output_batch = model(sample_batch)
-        loss = -mll(output_batch, Y[batch_index].T).sum()
+        loss = -mll(output_batch, Y_train[batch_index].T).sum()
         loss_list.append(loss.item())
         iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
         loss.backward()
@@ -145,8 +153,8 @@ if __name__ == '__main__':
     plt.figure(figsize=(8, 6))
     colors = ['r', 'b', 'g']
  
-    X = model.X.q_mu.detach().numpy()
-    #X = model.X().detach().numpy()
+    #X = model.X.q_mu.detach().numpy()
+    X = model.X().detach().numpy()
     #X = model.X.mu(Y).detach().numpy()
     #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
@@ -154,5 +162,5 @@ if __name__ == '__main__':
     for i, label in enumerate(np.unique(labels)):
         X_i = X[labels == label]
         #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 0], X_i[:, 1], c=[colors[i]], label=label)
+        plt.scatter(X_i[:, 5], X_i[:, 9], c=[colors[i]], label=label, marker='h')
         #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

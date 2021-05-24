@@ -7,9 +7,54 @@ Functions for visualisation
 
 import matplotlib.pylab as plt
 import seaborn as sns
+from pathlib import Path
+import torch 
 import numpy as np
 from mpl_toolkits.axes_grid1 import ImageGrid
+plt.style.use('seaborn-muted')
 
+
+def plot_report(model, losses, labels, colors, save, X_mean, X_scales=None):
+    
+    plt.figure(figsize=(12,4))
+    
+    inv_lengthscale = 1/model.covar_module.base_kernel.lengthscale
+    print(inv_lengthscale)
+    
+    latent_dim = model.X.latent_dim
+    
+    values, indices = torch.topk(model.covar_module.base_kernel.lengthscale, k=2,largest=False)
+    
+    l1 = indices.numpy().flatten()[0]
+    l2 = indices.numpy().flatten()[1]
+        
+    plt.subplot(131)
+    
+    #X = model.X.q_mu.detach().numpy()
+    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    plt.title('2d latent subspace',fontsize='small')
+    plt.xlabel('Latent dim 1')
+    plt.ylabel('Latent dim 2')
+    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    for i, label in enumerate(np.unique(labels)):
+        X_i = X_mean[labels == label]
+        plt.scatter(X_i[:, l1], X_i[:, l2], c=[colors[i]], label=label)
+        if X_scales is not None:
+            scale_i = X_scales[labels == label]
+            plt.errorbar(X_i[:, l1], X_i[:, l2], xerr=scale_i[:,l1], yerr=scale_i[:,l2], label=label,c=colors[i], fmt='none')
+        
+    plt.subplot(132)
+    plt.bar(np.arange(latent_dim), height=inv_lengthscale.detach().numpy().flatten())
+    plt.title('Inverse Lengthscale with SE-ARD kernel', fontsize='small')
+    plt.xlabel('Latent dims', fontsize='small')
+    
+    plt.subplot(133)
+    plt.plot(losses,label='batch_size=100')
+    plt.xlabel('Steps', fontsize='small')
+    plt.title('Neg. ELBO Loss', fontsize='small')
+    
+    plt.tight_layout()
+    plt.savefig(f'{Path(__file__)}/plots/save.png')
 
 def plot_grid_images(dataset_name, Y): 
     '''Plots grid of images, either 'brendan_faces' or 'mnist'
