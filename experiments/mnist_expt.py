@@ -1,13 +1,14 @@
 
-import torch
+import torch, os
 import numpy as np
 from tqdm import trange
 import matplotlib.pyplot as plt
 plt.ion(); plt.style.use('ggplot')
 
+import pickle as pkl
 from utils.data import load_real_data
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalIAF
+from models.latent_variable import NNEncoder
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from utils.visualisation import plot_y_reconstruction
 
@@ -21,7 +22,7 @@ from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 
 class GPLVM(BayesianGPLVM):
-    def __init__(self, n, data_dim, latent_dim, n_inducing, context_size=2, n_flows=10):
+    def __init__(self, n, data_dim, latent_dim, n_inducing):
         self.n = n
         self.batch_shape = torch.Size([data_dim])
         self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
@@ -32,8 +33,7 @@ class GPLVM(BayesianGPLVM):
         X_prior_mean = torch.zeros(n, latent_dim)
 
         prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        X = VariationalIAF(n, latent_dim, context_size, prior_x, data_dim, n_flows)
-
+        X = NNEncoder(n, latent_dim, prior_x, data_dim, (100, 25))
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -61,7 +61,7 @@ def train(model, likelihood, Y, steps=1000, batch_size=100):
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample_batch = model.sample_latent_variable(batch_idx=batch_index)
+        sample_batch = model.sample_latent_variable(Y, batch_idx=batch_index)
         output_batch = model(sample_batch)
         loss = -elbo(output_batch, Y[batch_index].T).sum()
         losses.append(loss.item())
@@ -80,16 +80,9 @@ if __name__ == '__main__':
     n, d, q, X, Y, lb = load_real_data('mnist')
     q = 2; Y /= 255
 
-    # remove some obs from Y
-    Y_full = Y.clone()
-    idx_a = np.random.choice(range(n), n * (d//2))
-    idx_b = np.random.choice(range(d), n * (d//2))
-    Y[idx_a, idx_b] = np.nan
-    # (Y.isnan().sum(axis=1) == d).any() # False hopefully
-
     # plt.imshow(Y[0].reshape(28, 28))
 
-    model = GPLVM(n, d, q, n_inducing=20, n_flows=30)
+    model = GPLVM(n, d, q, n_inducing=20)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available(): 
@@ -102,3 +95,17 @@ if __name__ == '__main__':
     Y = torch.tensor(Y, device=device)
     model.X.jitter = model.X.jitter.to(device=device)
     losses = train(model, likelihood, Y, steps=10000, batch_size=500)
+
+    # if os.path.isfile('model_params.pkl'):
+    #     with open('model_params.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
+
+    with open('model_params_m670_nnetenc.pkl', 'wb') as file:
+        pkl.dump((model.state_dict(), likelihood.state_dict()), file)
+
+    samples = model.X.mu(Y).detach().cpu()
+    Y_recon = model(samples[:1, :].cuda()).loc[:, 0].cpu().detach().reshape(28, 28)
+
+    plt.imshow(Y_recon)
