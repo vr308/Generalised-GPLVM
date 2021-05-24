@@ -213,10 +213,18 @@ class VariationalIAF(LatentVariable):
         for flow in self.flows:
             flow_mu = flow.forward(flow_mu, h)
         return flow_mu
-    
-    def get_latent_flow_samples(self):    
+
+    def get_latent_flow_samples(self, batch_idx=None):
         mu, h = self.get_mu_and_h()
         sg = self.sigma()
+
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+
+        mu = mu[batch_idx, ...]
+        sg = sg[batch_idx, ...]
+        h = h[batch_idx, ...]
+
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         flow_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
         
