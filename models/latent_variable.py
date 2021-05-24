@@ -261,7 +261,7 @@ class IAF(gpytorch.Module):
     This implementation is from ritchie46/vi-torch
     """
 
-    def __init__(self, latent_dim, context_size=1, auto_regressive_hidden=1):
+    def __init__(self, latent_dim, context_size=1, auto_regressive_hidden=5):
         super().__init__()
         self._kl_divergence_ = 0.0
         self.context_size = context_size

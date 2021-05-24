@@ -29,7 +29,7 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 from sklearn.model_selection import train_test_split
-plt.style.use('seaborn-muted')
+plt.style.use('ggplot')
 
 def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
@@ -51,8 +51,8 @@ class OilFlowModel(BayesianGPLVM):
         super(OilFlowModel, self).__init__(X, q_f)
         
         # Kernel 
-        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        #self.mean_module = ZeroMean()
+        #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
+        self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
 
      def forward(self, X):
@@ -88,12 +88,12 @@ if __name__ == '__main__':
     data_dim = Y_train.shape[1]
     latent_dim = 10
     n_inducing = 25
-    pca = True
+    pca = False
     
     # Run all 5 models and store results
     
     #models = ['point','map','gauss','nn_gauss','iaf']
-    models= ['point']
+    models= ['iaf_no_pca']
     model_dict = {}
     losses_dict = {}
     noise_trace_dict = {}
@@ -131,7 +131,7 @@ if __name__ == '__main__':
             
             ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = VariationalLatentVariable(N, data_dim, latent_dim, X_init, prior_x)
+            X = VariationalLatentVariable(X_init, prior_x, latent_dim)
         
         elif model_name == 'nn_gauss':
             
@@ -144,8 +144,8 @@ if __name__ == '__main__':
             
             ae = True
             nn_layers = (5,3,2)
-            context_size = 5
-            n_flows=2
+            context_size = 10
+            n_flows=3
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
             X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
             
@@ -170,12 +170,12 @@ if __name__ == '__main__':
         loss_list = []
         noise_trace = []
         
-        iterator = trange(15000, leave=True)
+        iterator = trange(25000, leave=True)
         batch_size = 100
         for i in iterator: 
             batch_index = model._get_batch_idx(batch_size)
             optimizer.zero_grad()
-            if model_name in ['point','map', 'gaussian']:
+            if model_name in ['point','map', 'gauss']:
                 sample = model.sample_latent_variable()  # a full sample returns latent x across all N
             else:
                 sample = model.sample_latent_variable(Y_train)
@@ -193,6 +193,14 @@ if __name__ == '__main__':
         model_dict[model_name] = model
         losses_dict[model_name] = loss_list
         noise_trace_dict[model_name] = noise_trace
+        
+        from utils.visualisation import *
+        
+        X_mean = model.X.mu(Y_train).detach().numpy()
+        #X_scales = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+        X_scales = np.array([torch.sqrt(x.diag()).numpy() for x in model.X.sigma(Y_train).detach()])
+        #X_scales = None
+        plot_report(model, loss_list, lb_train, colors=['r', 'b', 'g'], save=f'oilflow_{model_name}', X_mean=X_mean, X_scales=X_scales, model_name=model.X.__class__.__name__)
         
         #Compute latent test & reconstructions
         model.eval()
@@ -224,10 +232,10 @@ if __name__ == '__main__':
                                       model_name=model_name,pca=pca)
                 
         
-        # # Compute training and test reconstructions
+        # Compute training and test reconstructions
         
-        # y_test_pred_mean, y_test_pred_covar = reconstruct_y(self, X_test_mean, Y_test, ae=ae, model_name=model_name)
-        # y_train_pred_mean, y_train_pred_covar = reconstruct_y(self, X_train_mean, Y_train, ae=ae, model_name=model_name)
+         y_test_pred_mean, y_test_pred_covar = reconstruct_y(self, X_test_mean, Y_test, ae=ae, model_name=model_name)
+         y_train_pred_mean, y_train_pred_covar = reconstruct_y(self, X_train_mean, Y_train, ae=ae, model_name=model_name)
 
         # ################################
         # # # Compute the metrics:
