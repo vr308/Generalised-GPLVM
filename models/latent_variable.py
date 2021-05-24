@@ -296,8 +296,8 @@ class VariationalIAF(LatentVariable):
         prior_x = self.prior_x
         prior_x.loc = prior_x.loc[:len(batch_idx), ...]
         prior_x.covariance_matrix = prior_x.covariance_matrix[:len(batch_idx), ...]
-        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)        
-        sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, len(batch_idx), self.data_dim)        
+        sum_log_det_jac = flow_det_loss_term(self.flows, len(batch_idx), self.data_dim)
 
         self.update_added_loss_term('x_kl', x_kl)
         self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
