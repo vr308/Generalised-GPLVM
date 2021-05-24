@@ -151,17 +151,17 @@ class IAFEncoder(NNEncoder):
         return flow_mu
     
     def get_latent_flow_samples(self, Y):    
-        mu, h = self.get_mu_and_h(Y, self.context_size)
+        mu, h = self.get_mu_and_h(Y)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
-        gauss_base_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
+        flow_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
         
         for flow in self.flows:
-           flow_samples = flow.forward(gauss_base_samples, h)
+           flow_samples = flow.forward(flow_samples, h)
          
         return flow_samples
         
-    def get_mu_and_h(self, Y, context_size):
+    def get_mu_and_h(self, Y):
         
         mu_and_h = self.mu(Y)
         mu = mu_and_h[:, :-self.context_size]
@@ -169,7 +169,7 @@ class IAFEncoder(NNEncoder):
         return mu, h
     
     def forward(self, Y):
-        mu, h = self.get_mu_and_h(Y, self.context_size)
+        mu, h = self.get_mu_and_h(Y)
         sg = self.sigma(Y)
         q_x = torch.distributions.MultivariateNormal(mu, sg)
         sample = q_x.rsample()
@@ -182,6 +182,74 @@ class IAFEncoder(NNEncoder):
         
         # add further loss term accounting for jacobian determinant
         sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
+        self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
+        
+        return sample
+
+class VariationalIAF(LatentVariable):
+    def __init__(self, n, latent_dim, context_size, prior_x, data_dim, n_flows):
+        super().__init__(n, latent_dim)
+        self.context_size = context_size
+        self.prior_x = prior_x
+        self.latent_dim = latent_dim
+        self.data_dim = data_dim
+        self.n = n
+        self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
+
+        for i in range(n_flows):
+            self.add_module(f'flows{i}', self.flows[i])
+
+        self.mu_and_h = torch.nn.Parameter(torch.zeros(n, latent_dim + context_size))
+        self.sigma_factor = torch.nn.Parameter(torch.randn(n, latent_dim**2))
+
+        self.register_added_loss_term("x_kl")
+        self.register_added_loss_term("x_det_jacobian")
+
+    def get_latent_flow_means(self):    
+        flow_mu, h = self.get_mu_and_h()
+        for flow in self.flows:
+            flow_mu = flow.forward(flow_mu, h)
+        return flow_mu
+    
+    def get_latent_flow_samples(self):    
+        mu, h = self.get_mu_and_h()
+        sg = self.sigma()
+        q_x = torch.distributions.MultivariateNormal(mu, sg)
+        flow_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
+        
+        for flow in self.flows:
+           flow_samples = flow.forward(flow_samples, h)
+         
+        return flow_samples
+        
+    def get_mu_and_h(self):
+        mu = self.mu_and_h[:, :-self.context_size]
+        h = self.mu_and_h[:, -self.context_size:]
+        return mu, h
+
+    def sigma(self):
+        sg = self.sigma_factor
+        sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
+        sg = torch.einsum('aij,akj->aik', sg, sg)
+
+        jitter = torch.eye(self.latent_dim).unsqueeze(0)*1e-5
+        jitter = torch.cat([jitter for i in range(len(sg))], axis=0)
+        sg += jitter
+        return sg
+
+    def forward(self, Y):
+        mu, h = self.get_mu_and_h()
+        sg = self.sigma()
+        q_x = torch.distributions.MultivariateNormal(mu, sg)
+        sample = q_x.rsample()
+
+        for flow in self.flows:
+            sample = flow.forward(sample, h)
+
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)        
+        sum_log_det_jac = flow_det_loss_term(self.flows, self.n, self.data_dim)
+
+        self.update_added_loss_term('x_kl', x_kl)
         self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
         
         return sample
@@ -222,7 +290,7 @@ class IAF(gpytorch.Module):
 
         # Initially s_t should be large, i.e. 1 or 2.
         s_t = self.s_t(z, h) + 1.5
-        sigma_t = F.sigmoid(s_t)
+        sigma_t = torch.sigmoid(s_t)
         m_t = self.m_t(z, h)
 
         # log |det Jac|
