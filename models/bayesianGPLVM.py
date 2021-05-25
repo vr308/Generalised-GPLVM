@@ -5,6 +5,7 @@ from gpytorch.models import ApproximateGP
 from gpytorch.mlls import VariationalELBO
 from prettytable import PrettyTable
 from tqdm import trange
+import pickle as pkl
 import numpy as np
 from copy import deepcopy
 import torch
@@ -43,9 +44,14 @@ class BayesianGPLVM(ApproximateGP):
         sample = self.X(*args, **kwargs)
         return sample
     
-    def initialise_model_test(self, Y_test, prior_x=None, pca=True):
+    def initialise_model_test(self, Y_test, model_name, seed, prior_x=None, pca=True):
         
-        test_model = deepcopy(self) # A says better to re-initialise
+        if model_name == 'gauss': # deepcopy wont work
+            test_model = pkl.loads(pkl.dumps(self)) 
+            assert id(test_model) != id(self)
+            assert test_model.covar_module.base_kernel.lengthscale[0][0] == self.covar_module.base_kernel.lengthscale[0][0]
+        else:
+            test_model = deepcopy(self) # A says better to re-initialise
         # self is in eval mode - but test_model needs to be in train_mode
         test_model.train()
         test_model.n = len(Y_test)
@@ -60,7 +66,7 @@ class BayesianGPLVM(ApproximateGP):
         
         kwargs = {'X_init_test': X_init}
         if prior_x is not None:
-            kwargs['prior_x'] = prior_x
+            kwargs['prior_x_test'] = prior_x
         if hasattr(test_model.X, 'data_dim'):
             kwargs['data_dim'] = Y_test.shape[1]
 
@@ -73,7 +79,7 @@ class BayesianGPLVM(ApproximateGP):
         
         return test_model
     
-    def predict_latent(self, Y_train, Y_test, lr, likelihood, prior_x=None, ae=True, model_name='nn_gauss', pca=True):
+    def predict_latent(self, Y_train, Y_test, lr, likelihood, seed, prior_x=None, ae=True, model_name='nn_gauss', pca=True):
         
         if ae is True: # A says make into a LatentVariable attribute
            
@@ -96,7 +102,7 @@ class BayesianGPLVM(ApproximateGP):
             # do not affect the test data.
             
             # Initialise test model at training params
-            test_model = self.initialise_model_test(Y_test, prior_x=prior_x, pca=pca)
+            test_model = self.initialise_model_test(Y_test, model_name, seed, prior_x=prior_x, pca=pca)
             
             # Initialise fresh test optimizer 
             optimizer = torch.optim.Adam(test_model.X.parameters(), lr=lr)
@@ -105,7 +111,6 @@ class BayesianGPLVM(ApproximateGP):
             print('---------------Learning variational parameters for test ------------------')
             for name, param in test_model.X.named_parameters():
                 print(name)
-                print(param)
                 
             loss_list = []
             iterator = trange(15000, leave=True)
@@ -160,5 +165,38 @@ class BayesianGPLVM(ApproximateGP):
             total_params+=param
         print(table)
         print(f"Total Trainable Params: {total_params}")
+        
+    def get_X_mean(self, Y):
+         
+         if self.X.__class__.__name__ in ('PointLatentVariable', 'MAPLatentVariable'):
+             
+             return self.X.X.detach().numpy()
+         
+         elif self.X.__class__.__name__ == 'VariationalLatentVariable':
+             
+             return self.X.q_mu.detach().numpy()
+         
+         elif self.X.__class__.__name__ == 'NNEncoder':
+             
+             return self.X.mu(Y).detach().numpy()
     
-   
+    def get_X_scales(self, Y):
+     
+         if self.X.__class__.__name__ in ('PointLatentVariable', 'MAPLatentVariable'):
+             
+             return None
+         
+         elif self.X.__class__.__name__ == 'VariationalLatentVariable':
+             
+             return torch.nn.functional.softplus(self.X.q_log_sigma).detach().numpy()
+         
+         elif self.X.__class__.__name__ == 'NNEncoder':
+             
+             return np.array([torch.sqrt(x.diag()).numpy() for x in self.X.sigma(Y).detach()])
+         
+    def store(self, losses, likelihood):
+        
+         self.losses = losses 
+         self.likelihood = likelihood
+
+       

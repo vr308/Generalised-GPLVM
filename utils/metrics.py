@@ -14,18 +14,13 @@ from pyro.distributions.transforms import AffineTransform
 
 def float_tensor(X): return torch.tensor(X).float()
 
-def mean_reconstruction_error(Y_test, Y_recon):
+def rmse(Y_test, Y_recon):
     
-    return torch.mean((Y_test - float_tensor(Y_recon))**2);
+    return torch.mean((Y_test - float_tensor(Y_recon))**2).sqrt()
 
-def mean_missing_reconstruction_error(Y_test, Y_recon):
+def rmse_missing(Y_test, Y_recon):
     
     return torch.sqrt(torch.mean(torch.Tensor([np.nanmean(np.square(Y_test - Y_recon))])))
-
-def test_log_likelihood(final_stable_loss_train, final_stable_loss_full):
-    
-     return final_stable_loss_full - final_stable_loss_train
-
 
 def decomm_test_log_likelihood(model, Y_test, test_dist):
     

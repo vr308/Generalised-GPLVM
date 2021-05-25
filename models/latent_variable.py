@@ -323,8 +323,8 @@ class VariationalLatentVariable(LatentVariable):
         self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
         return q_x.rsample()
     
-    def reset(self, X_init, prior_x, data_dim):
-        self.__init__(X_init, prior_x, data_dim)
+    def reset(self, X_init_test, prior_x_test, data_dim):
+        self.__init__(X_init_test, prior_x_test, data_dim)
 
 class PointNetEncoder(LatentVariable):
     def __init__(self, n, data_dim, latent_dim, prior_x, inter_dim=5, h_dims=(5, 5), rho_dims=(5, 5)):

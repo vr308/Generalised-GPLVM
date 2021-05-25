@@ -15,6 +15,8 @@ from models.latent_variable import *
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 import torch
+import os 
+import pickle as pkl
 import numpy as np
 from tqdm import trange
 from gpytorch.means import ConstantMean
@@ -59,10 +61,10 @@ class My_GPLVM_Model(BayesianGPLVM):
         #X = MAPLatentVariable(n, latent_dim, X_init, prior_x)
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-            #X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
-            context_size = 3
-            n_flows=3
-            X = IAFEncoder(self.n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
+            X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
+            #context_size = 10
+            #n_flows=3
+            #X = IAFEncoder(self.n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
             #prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
             #X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
@@ -111,10 +113,10 @@ if __name__ == '__main__':
     data_dim = Y_train.shape[1]
     latent_dim = 10
     n_inducing = 25
-    pca = True
+    pca = False
       
     # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=None)
+    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(10,5))
     
     # Likelihood
     likelihood = GaussianLikelihood()
@@ -133,34 +135,44 @@ if __name__ == '__main__':
     # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
     # using the optimizer provided.
     
-    loss_list = []
-    iterator = trange(15000, leave=True)
-    batch_size = 100
-    for i in iterator: 
-        batch_index = model._get_batch_idx(batch_size)
-        optimizer.zero_grad()
-        sample = model.sample_latent_variable()  # a full sample returns latent x across all N
-        sample_batch = sample[batch_index]
-        output_batch = model(sample_batch)
-        loss = -mll(output_batch, Y_train[batch_index].T).sum()
-        loss_list.append(loss.item())
-        iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
-        loss.backward()
-        optimizer.step()
+    # loss_list = []
+    # iterator = trange(5000, leave=True)
+    # batch_size = 100
+    # for i in iterator: 
+    #     batch_index = model._get_batch_idx(batch_size)
+    #     optimizer.zero_grad()
+    #     sample = model.sample_latent_variable(Y_train)  # a full sample returns latent x across all N
+    #     sample_batch = sample[batch_index]
+    #     output_batch = model(sample_batch)
+    #     loss = -mll(output_batch, Y_train[batch_index].T).sum()
+    #     loss_list.append(loss.item())
+    #     iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
+    #     loss.backward()
+    #     optimizer.step()
         
-    # Plot result
+    # Save model
     
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
+    if os.path.isfile('pre_trained_models/model_params_no_flow.pkl'):
+        with open('pre_trained_models/model_params_no_flow.pkl', 'rb') as file:
+            model_sd, likl_sd = pkl.load(file)
+            model.load_state_dict(model_sd)
+            likelihood.load_state_dict(likl_sd)
+
+    filename = f'oilflow_{model_name}_{SEED}.pkl'
+    with open(f'pre_trained_models/{filename}', 'wb') as file:
+        pkl.dump(model.state_dict(), file)
+    
+    # plt.figure(figsize=(8, 6))
+    # colors = ['r', 'b', 'g']
  
-    #X = model.X.q_mu.detach().numpy()
-    X = model.X().detach().numpy()
-    #X = model.X.mu(Y).detach().numpy()
-    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+    # #X = model.X.q_mu.detach().numpy()
+    # #X = model.X().detach().numpy()
+    # #X = model.X.mu(Y).detach().numpy()
+    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
     
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        X_i = X[labels == label]
-        #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 5], X_i[:, 9], c=[colors[i]], label=label, marker='h')
-        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+    # for i, label in enumerate(np.unique(labels)):
+    #     X_i = X[labels == label]
+    #     #scale_i = std[labels == label]
+    #     plt.scatter(X_i[:, 4], X_i[:, 7], c=[colors[i]], label=label, marker='x')
+    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
