@@ -93,28 +93,48 @@ if __name__ == '__main__':
 
     # plt.imshow(Y[0].reshape(28, 28))
 
-    model = GPLVM(n, d, q, n_inducing=20, n_flows=10)
+    model = GPLVM(n, d, q, n_inducing=20, n_flows=0)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
-    if torch.cuda.is_available(): 
-        device = 'cuda' 
-        model = model.cuda() 
-        likelihood = likelihood.cuda() 
-    else: 
+    if torch.cuda.is_available():
+        device = 'cuda'
+        model = model.cuda()
+        likelihood = likelihood.cuda()
+    else:
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
     model.X.jitter = model.X.jitter.to(device=device)
     losses = train(model, likelihood, Y, steps=10000, batch_size=500)
 
-    # if os.path.isfile('model_params.pkl'):
-    #     with open('model_params.pkl', 'rb') as file:
-    #         model_sd, likl_sd = pkl.load(file)
-    #         model.load_state_dict(model_sd)
-    #         likelihood.load_state_dict(likl_sd)
+    if os.path.isfile('for_paper/model_params_no_flow.pkl'):
+        with open('for_paper/model_params_no_flow.pkl', 'rb') as file:
+            model_sd, likl_sd = pkl.load(file)
+            model.load_state_dict(model_sd)
+            likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/model_params_10_variaf.pkl', 'wb') as file:
+    with open('for_paper/model_params_no_flow.pkl', 'wb') as file:
         pkl.dump((model.state_dict(), likelihood.state_dict()), file)
 
     samples = model.X.get_latent_flow_means().detach().cpu()
     plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb)
+
+    plt.style.use('seaborn-deep')
+    fig, axs = plt.subplots(3, 7)
+    fig.suptitle('Reconstructions')
+    k = 10
+    for i in range(3):
+        for j in range(7):
+            k += 1
+            axs[i, j].imshow(model(samples[[k], :].cuda()).loc[:, 0].detach().reshape(28, 28).cpu())
+            axs[i, j].axis('off')
+
+    plt.style.use('seaborn-deep')
+    fig, axs = plt.subplots(3, 7)
+    fig.suptitle('Original Digits')
+    k = 10
+    for i in range(3):
+        for j in range(7):
+            k += 1
+            axs[i, j].imshow(Y[k].reshape(28, 28).cpu())
+            axs[i, j].axis('off')

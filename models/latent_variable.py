@@ -225,7 +225,7 @@ class VariationalIAF(LatentVariable):
         self.latent_dim = latent_dim
         self.data_dim = data_dim
         self.n = n
-        self.flows = [IAF(latent_dim, context_size) for _ in range(n_flows)]
+        self.flows = [IAF(latent_dim, context_size, 4) for _ in range(n_flows)]
 
         for i in range(n_flows):
             self.add_module(f'flows{i}', self.flows[i])
