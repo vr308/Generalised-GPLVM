@@ -13,6 +13,7 @@ from models.iaf import AutoRegressiveNN
 import torch.nn.functional as F
 import numpy as np
 from models.partial_gaussian import PointNet
+from pyro.distributions.transforms import Planar
 
 class LatentVariable(gpytorch.Module):
     
@@ -304,6 +305,78 @@ class VariationalIAF(LatentVariable):
         
         return sample
 
+class PlanarFlow(LatentVariable):
+    def __init__(self, n, latent_dim, prior_x, data_dim, n_flows):
+        super().__init__(n, latent_dim)
+        self.prior_x = prior_x
+        self.latent_dim = latent_dim
+        self.data_dim = data_dim
+        self.n = n
+        self.flows = [Planar(latent_dim) for _ in range(n_flows)]
+
+        for i in range(n_flows):
+            self.add_module(f'flows{i}', self.flows[i])
+
+        self.mu = torch.nn.Parameter(torch.randn(n, latent_dim))
+        self.log_sigma = torch.nn.Parameter(torch.randn(n, latent_dim))
+
+        self.register_added_loss_term("x_kl")
+        self.register_added_loss_term("x_det_jacobian")
+
+    def get_latent_flow_means(self):    
+        flow_mu = self.mu
+        for flow in self.flows:
+            flow_mu = flow(flow_mu)
+        return flow_mu
+
+    def get_latent_flow_samples(self, batch_idx=None):
+        mu = self.mu * 1
+        sg = torch.sigmoid(self.log_sigma)
+
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+
+        mu = mu[batch_idx, ...]
+        sg = sg[batch_idx, ...]
+
+        q_x = torch.distributions.Normal(mu, sg)
+        flow_samples = q_x.rsample(sample_shape=torch.Size([500]))
+        
+        for flow in self.flows:
+           flow_samples = flow(flow_samples)
+         
+        return flow_samples
+
+    def forward(self, batch_idx=None):
+        mu = self.mu
+        sg = torch.sigmoid(self.log_sigma)
+
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+
+        mu = mu[batch_idx, ...]
+        sg = sg[batch_idx, ...]
+
+        q_x = torch.distributions.Normal(mu, sg)
+        sample_x = q_x.rsample()
+
+        kl = np.zeros(len(self.flows))
+        for i, flow in enumerate(self.flows):
+            sample_y = flow(sample_x)
+            kl[i] = flow.log_abs_det_jacobian(sample_x, sample_y).sum()
+            sample_x = sample_y
+
+        prior_x = self.prior_x
+        prior_x.loc = prior_x.loc[:len(batch_idx), ...]
+        prior_x.scale = prior_x.scale[:len(batch_idx), ...]
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, len(batch_idx), self.data_dim)        
+        sum_log_det_jac = flow_det_loss_term_planar(kl, len(batch_idx), self.data_dim)
+
+        self.update_added_loss_term('x_kl', x_kl)
+        self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
+        
+        return sample_x
+
 class IAF(gpytorch.Module):
     """
     Inverse Autoregressive Flow
@@ -462,6 +535,24 @@ class flow_det_loss_term(AddedLossTerm):
     def loss(self): 
         # G 
         det_loss_per_latent_dim = np.array([x._kl_divergence_ for x in self.flow_list]).sum(axis=0)
+        det_loss_per_point = det_loss_per_latent_dim.sum()/self.n # scalar
+        # inside the forward method of variational ELBO, 
+        # the added loss terms are expanded (using add_) to take the same 
+        # shape as the log_lik term (has shape data_dim)
+        # so they can be added together. Hence, we divide by data_dim to avoid 
+        # overcounting the kl term
+        return -1*(det_loss_per_point/self.data_dim)
+
+class flow_det_loss_term_planar(AddedLossTerm):
+    
+    def __init__(self, flow_list, n, data_dim):
+        self.flow_list = flow_list
+        self.n = n
+        self.data_dim = data_dim
+        
+    def loss(self): 
+        # G 
+        det_loss_per_latent_dim = np.array([x._cached_logDetJ for x in self.flow_list]).sum(axis=0)
         det_loss_per_point = det_loss_per_latent_dim.sum()/self.n # scalar
         # inside the forward method of variational ELBO, 
         # the added loss terms are expanded (using add_) to take the same 
