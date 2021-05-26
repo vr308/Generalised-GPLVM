@@ -366,15 +366,22 @@ class VariationalLatentVariable(LatentVariable):
         # This will add the KL divergence KL(q(X) || p(X)) to the loss
         self.register_added_loss_term("x_kl")
 
-    def forward(self):
-        # Variational distribution over the latent variable q(x)
-        q_x = torch.distributions.Normal(self.q_mu, torch.nn.functional.softplus(self.q_log_sigma))
-        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, self.n, self.data_dim)
-        self.update_added_loss_term('x_kl', x_kl)  # Update the KL term
+    def forward(self, batch_idx=None):
+        
+        q_mu_batch = self.q_mu[batch_idx, ...]
+        q_log_sigma_batch = self.q_log_sigma[batch_idx, ...]
+
+        q_x = torch.distributions.MultivariateNormal(q_mu_batch, q_log_sigma_batch)
+
+        prior_x = self.prior_x
+        prior_x.loc = prior_x.loc[:len(batch_idx), ...]
+        prior_x.covariance_matrix = prior_x.covariance_matrix[:len(batch_idx), ...]
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, len(batch_idx), self.data_dim)        
+        self.update_added_loss_term('x_kl', x_kl)
         return q_x.rsample()
     
-    def reset(self, X_init, prior_x, data_dim):
-        self.__init__(X_init, prior_x, data_dim)
+    def reset(self, X_init_test, prior_x_test, data_dim):
+        self.__init__(X_init_test, prior_x_test, data_dim)
 
 class PointNetEncoder(LatentVariable):
     def __init__(self, n, data_dim, latent_dim, prior_x, inter_dim=5, h_dims=(5, 5), rho_dims=(5, 5)):
