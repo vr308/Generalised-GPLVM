@@ -14,6 +14,7 @@ Script for experiments with oilflow data
 # Flexible variational family
 
 from utils.data import load_real_data 
+import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder, IAFEncoder
 from matplotlib import pyplot as plt
@@ -69,8 +70,16 @@ class OilFlowModel(BayesianGPLVM):
      
 if __name__ == '__main__':
     
-    # Setting seed for reproducibility
-    SEED = 7
+    
+    TEST = True
+    increment = np.random.randint(0,100,3)
+
+model_dict = {}
+noise_trace_dict = {}
+
+for _ in range(1):
+    
+    SEED = 7 + increment[_]
     torch.manual_seed(SEED)
 
     # Load some data
@@ -90,18 +99,18 @@ if __name__ == '__main__':
     n_inducing = 25
     pca = False
     
-    # Run all 5 models and store results
+    # Run all 4 models and store results
     
-    #models = ['point','map','gauss','nn_gauss','iaf']
-    models= ['iaf_no_pca']
-    model_dict = {}
-    losses_dict = {}
-    noise_trace_dict = {}
+    models = ['point','map','gauss']
+    #models = ['gauss']'nn_gauss'
+    steps = [60000, 60000, 60000]
+    steps_per_model = dict(zip(models, steps))
     
     for model_name in models:
         
         # Define prior for X
         X_prior_mean = torch.zeros(N, latent_dim)  # shape: N x Q
+        X_prior_mean_test = X_prior_mean[0:len(Y_test),:]
     
         # Initialise X with PCA or 0s.
         if pca == True:
@@ -115,6 +124,7 @@ if __name__ == '__main__':
         # defaults - if a model needs them they are internally assigned
         nn_layers = None
         prior_x = None
+        prior_x_test = None
         
         if model_name == 'point':
             
@@ -125,29 +135,32 @@ if __name__ == '__main__':
                         
             ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+            prior_x_test = NormalPrior(X_prior_mean_test, torch.ones_like(X_prior_mean_test))
             X = MAPLatentVariable(X_init, prior_x)
             
         elif model_name == 'gauss':
             
             ae = False
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+            prior_x_test = NormalPrior(X_prior_mean_test, torch.ones_like(X_prior_mean_test))
             X = VariationalLatentVariable(X_init, prior_x, latent_dim)
         
         elif model_name == 'nn_gauss':
             
             ae = True
-            nn_layers = (5,3,2)
+            nn_layers = (10,5)
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
+            prior_x_test = MultivariateNormalPrior(X_prior_mean_test, torch.eye(X_prior_mean.shape[1]))
             X = NNEncoder(N, latent_dim, prior_x, data_dim, layers=nn_layers)
             
-        elif model_name == 'iaf':
+        # elif model_name == 'iaf':
             
-            ae = True
-            nn_layers = (5,3,2)
-            context_size = 10
-            n_flows=3
-            prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-            X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
+        #     ae = True
+        #     nn_layers = (5,3,2)
+        #     context_size = 4
+        #     n_flows=8
+        #     prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
+        #     X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
             
         # Initialise model, likelihood, elbo and optimizer
         
@@ -170,7 +183,7 @@ if __name__ == '__main__':
         loss_list = []
         noise_trace = []
         
-        iterator = trange(25000, leave=True)
+        iterator = trange(steps_per_model[model_name], leave=True)
         batch_size = 100
         for i in iterator: 
             batch_index = model._get_batch_idx(batch_size)
@@ -187,80 +200,95 @@ if __name__ == '__main__':
             iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
             loss.backward()
             optimizer.step()
+        model.store(loss_list, likelihood)
             
         # Save models & training info
+        
         print(model.covar_module.base_kernel.lengthscale)
-        model_dict[model_name] = model
-        losses_dict[model_name] = loss_list
-        noise_trace_dict[model_name] = noise_trace
+        model_dict[model_name + '_' + str(SEED)] = model
+        noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
+        
+        ### Saving training report
         
         from utils.visualisation import *
         
-        X_mean = model.X.mu(Y_train).detach().numpy()
-        #X_scales = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
-        X_scales = np.array([torch.sqrt(x.diag()).numpy() for x in model.X.sigma(Y_train).detach()])
-        #X_scales = None
-        plot_report(model, loss_list, lb_train, colors=['r', 'b', 'g'], save=f'oilflow_{model_name}', X_mean=X_mean, X_scales=X_scales, model_name=model.X.__class__.__name__)
+        X_train_mean = model.get_X_mean(Y_train)
+        X_train_scales = model.get_X_scales(Y_train)
         
-        #Compute latent test & reconstructions
-        model.eval()
-        likelihood.eval()
+        plot_report(model, loss_list, lb_train, colors=['r', 'b', 'g'], save=f'oilflow_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
         
-        if ae is True:
-            if model_name != 'iaf':
-                X_test_mean, X_test_covar = model.predict_latent(Y_train, 
-                                                                  Y_test, 
-                                                                  optimizer.defaults['lr'], 
-                                                                  likelihood, 
-                                                                  prior_x=prior_x, 
-                                                                  ae=True, 
-                                                                  model_name='nn_gauss', 
-                                                                  pca=pca)
-            else:
-                X_test_mean, X_flow_samples = model.predict_latent(Y_train, 
-                                                                    Y_test, 
-                                                                    optimizer.defaults['lr'], 
-                                                                    likelihood, 
-                                                                    prior_x = prior_x,
-                                                                    ae=True, 
-                                                                    model_name='iaf',
-                                                                    pca=pca)
+        #### Saving model with seed 
+        print(f'Saving {model_name} {SEED}')
         
-        else: # either point, map or gauss
-            losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
-                                      likelihood, prior_x=prior_x, ae=ae, 
-                                      model_name=model_name,pca=pca)
-                
-        
-        # Compute training and test reconstructions
-        
-         y_test_pred_mean, y_test_pred_covar = reconstruct_y(self, X_test_mean, Y_test, ae=ae, model_name=model_name)
-         y_train_pred_mean, y_train_pred_covar = reconstruct_y(self, X_train_mean, Y_train, ae=ae, model_name=model_name)
+        filename = f'oilflow_{model_name}_{SEED}.pkl'
+        with open(f'pre_trained_models/{filename}', 'wb') as file:
+            pkl.dump(model.state_dict(), file)
 
-        # ################################
-        # # # Compute the metrics:
-        
-        # # 1) Reconstruction error
-        
-        # mse_test_gaussian = metrics.mean_reconstruction_error(Y_test, Y_test_recon)
-        # mse_test_flow = metrics.mean_reconstruction_error(Y_test, Y_test_flow_recon)
-        
-        # print(f'Reconstruction error {model_name} = ' + str(mse_test_gaussian))
-        # print(f'Reconstruction error ' + model + '(with flows) = ' + str(mse_test_flow))
-        
-        # # # 2) ELBO Loss
-        
-        # print('Final -ELBO ' + model + '(no flows) = ' + str(losses[-1]))
-        # print('Final -ELBO ' + model + '(with flows) = ' + str(losses_flow[-1]))
-        
-        # # 3) Negative Test log-likelihood
-        
-        # metrics.test_log_likelihood(gplvm, Y_test, test_dist)
-        # metrics.test_log_likelihood(gplvm_flow, Y_test, test_flow_dist)
+        ####################### Testing Framework ################################################
+        if TEST:
+        #Compute latent test & reconstructions
+            with torch.no_grad():
+                model.eval()
+                likelihood.eval()
+            
+            if ae is True:
+                if model_name != 'iaf':
+                    X_test_mean, X_test_covar = model.predict_latent(Y_train, 
+                                                                      Y_test, 
+                                                                      optimizer.defaults['lr'], 
+                                                                      likelihood, 
+                                                                      SEED,
+                                                                      prior_x=prior_x_test, 
+                                                                      ae=True, 
+                                                                      model_name='nn_gauss', 
+                                                                      pca=pca)
+                else:
+                    X_test_mean, X_flow_samples = model.predict_latent(Y_train, 
+                                                                        Y_test, 
+                                                                        optimizer.defaults['lr'], 
+                                                                        likelihood, 
+                                                                        prior_x = prior_x,
+                                                                        ae=True, 
+                                                                        model_name='iaf',
+                                                                        pca=pca)
+            
+            else: # either point, map or gauss
+                losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
+                                          likelihood, SEED, prior_x=prior_x_test, ae=ae, 
+                                          model_name=model_name,pca=pca)
+                    
+            
+            # Compute training and test reconstructions
+            if model_name in ('point', 'map'):
+                    X_test_mean = X_test.X
+            elif model_name == 'gauss':
+                   X_test_mean = X_test.q_mu.detach().numpy()
+       
+            Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
+            Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
+            
+            # ################################
+            # # # Compute the metrics:
+            from utils.metrics import *
+            
+            # 1) Reconstruction error - Train & Test
+            
+            mse_train = rmse(Y_train, Y_train_recon.T)
+            mse_test = rmse(Y_test, Y_test_recon.T)
+            
+            print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
+            print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+            
+            # 2) Negative Test log-likelihood
+            if model_name in ('point', 'map', 'gauss'):
+                nll = losses_test[-1]/len(Y_test)
+            else:
+                with torch.no_grad():
+                    Y_star = model(X_test_mean)
+                    nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
+                    
+            print(f'Test NLL {model_name} = ' + str(nll))
     
-        # print('Final TLL ' + model + '(no flows) = ' + str(nll))
-        # print('Final TLL ' + model + '(with flows) = ' + str(nll_flow))
-        
         # metrics_df = pd.DataFrame(columns=['-elbo','mse','tll'], index=['Gaussian','Flows'])
         
         # metrics_df['-elbo'] = [losses[-1], losses_flow[-1]]
