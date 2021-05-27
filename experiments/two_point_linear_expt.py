@@ -1,7 +1,3 @@
-'''
-Initial commit, does not currently work - need to increase number of
-samples for kl div
-'''
 
 import torch
 import numpy as np
@@ -9,8 +5,11 @@ from tqdm import trange
 import matplotlib.pyplot as plt
 plt.ion(); plt.style.use('ggplot')
 
+from utils.data import generate_synthetic_data
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalLatentVariable
+from models.latent_variable import IAFEncoder
+from models.likelihoods import GaussianLikelihoodWithMissingObs
+from utils.visualisation import plot_y_reconstruction
 
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
@@ -22,7 +21,7 @@ from gpytorch.kernels import LinearKernel
 from gpytorch.distributions import MultivariateNormal
 
 class GPLVM(BayesianGPLVM):
-    def __init__(self, n, data_dim, latent_dim, n_inducing):
+    def __init__(self, n, data_dim, latent_dim, n_inducing, nn_layers=None, context_size=2, n_flows=10):
         self.n = n
         self.batch_shape = torch.Size([data_dim])
         self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
@@ -31,10 +30,9 @@ class GPLVM(BayesianGPLVM):
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
 
         X_prior_mean = torch.zeros(n, latent_dim)
-        X_init = torch.nn.Parameter(torch.zeros(n, latent_dim).normal_())
 
-        prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-        X = VariationalLatentVariable(n, data_dim, latent_dim, X_init, prior_x)
+        prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
+        X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -55,17 +53,19 @@ class GPLVM(BayesianGPLVM):
 def train(model, likelihood, Y, steps=1000, batch_size=100):
 
     elbo = VariationalELBO(likelihood, model, num_data=len(Y))
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.01)
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.001)
 
     losses = []
     iterator = trange(steps)
     for i in iterator: 
+        batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-
-        sample = model.sample_latent_variable()
-        output = model(sample)
-
-        loss = -elbo(output, Y.T).sum()
+        loss= 0.0
+        for _ in range(5):
+            sample = model.sample_latent_variable(Y)
+            sample_batch = sample[batch_index]
+            output_batch = model(sample_batch)
+            loss += -elbo(output_batch, Y[batch_index].T).sum()/5
         losses.append(loss.item())
         iterator.set_description(
             '-elbo: ' + str(np.round(loss.item(), 2)) +\
@@ -86,6 +86,6 @@ if __name__ == '__main__':
     W = np.random.normal(size = (q, d))
     Y = torch.tensor(X @ W).float()
 
-    model = GPLVM(n, d, q, 2)
+    model = GPLVM(n, d, q, n_inducing=2, n_flows=30, nn_layers=(4, 4))
     likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    losses = train(model, likelihood, Y, steps=2500, batch_size=n)
+    losses = train(model, likelihood, Y, steps=10000, batch_size=n)
