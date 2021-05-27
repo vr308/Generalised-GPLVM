@@ -25,6 +25,11 @@ from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
+from sklearn.model_selection import train_test_split
+
+def _init_pca(Y, latent_dim):
+    U, S, V = torch.pca_lowrank(Y, q = latent_dim)
+    return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
 class MovieLensModel(BayesianGPLVM):
      def __init__(self, n, data_dim, latent_dim, n_inducing, X, nn_layers=None):
@@ -42,10 +47,9 @@ class MovieLensModel(BayesianGPLVM):
         super(MovieLensModel, self).__init__(X, q_f)
         
         # Kernel 
-        #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        self.mean_module = ZeroMean()
+        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
+        #self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
-
 
      def forward(self, X):
         mean_x = self.mean_module(X)
@@ -59,128 +63,150 @@ class MovieLensModel(BayesianGPLVM):
          batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
          return np.sort(batch_indices)
      
-
 if __name__ == '__main__':
     
-    # Setting seed for reproducibility
+    model_dict = {}
+    noise_trace_dict = {}
     
-    torch.manual_seed(3)
+    TEST = True
+    increment = np.random.randint(0,100,3)
+    
+    SEED = 7 + np.random.randint()
+    torch.manual_seed(SEED)
 
     # Load some data
     
-    N, d, q, X, Y, labels = load_real_data('movie_lens')
+    N, d, q, X, Y, labels = load_real_data('oilflow')
+    
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
+    
+    Y_train = torch.Tensor(Y_train)
+    Y_test = torch.Tensor(Y_test)
       
     # Setting shapes
-    N = len(Y)
-    data_dim = Y.shape[1]
-    latent_dim = 10
+    N = len(Y_train)
+    data_dim = Y_train.shape[1]
+    latent_dim = 15
     n_inducing = 32
     pca = False
     
-    # Run all 5 models and store results
+    # Run all 4 models and store results
     
-    models = ['point','map','gaussian','pointnet_gaussian','pointnet_iaf']
+    # Define prior for X
+    X_prior_mean = torch.zeros(N, latent_dim)  # shape: N x Q
+    X_prior_mean_test = X_prior_mean[0:len(Y_test),:]
+
+    # Initialise X with PCA or 0s.
+    if pca == True:
+          X_init = _init_pca(Y_train, latent_dim) # Initialise X to PCA 
+    else:
+          X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
     
-    model_dict = {}
-    losses_dict = {}
+    # Each inference model differs in its latent variable configuration / 
+    # LatentVariable (X)
     
-    for model_name in models:
+    # defaults - if a model needs them they are internally assigned
+    nn_layers = None
+    model_name = 'gauss'
+      
+    ae = False
+    prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+    prior_x_test = NormalPrior(X_prior_mean_test, torch.ones_like(X_prior_mean_test))
+    X = VariationalLatentVariable(X_init, prior_x, latent_dim)
+    
+    # Initialise model, likelihood, elbo and optimizer
+    
+    model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
+    likelihood = GaussianLikelihoodWithMissingObs()
+    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train))
+
+    optimizer = torch.optim.Adam([
+    {'params': model.parameters()},
+    {'params': likelihood.parameters()}
+    ], lr=0.001)
+
+    # Model params
+    print(f'Training model params for model {model_name}')
+    model.get_trainable_param_names()
+
+    # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
+    # using the optimizer provided.
+    
+    loss_list = []
+    noise_trace = []
+    
+    iterator = trange(50000, leave=True)
+    batch_size = 100
+    for i in iterator: 
+        batch_index = model._get_batch_idx(batch_size)
+        optimizer.zero_grad()
+        sample = model.sample_latent_variable(batch_index)  # a full sample returns latent x across all N
+        sample_batch = sample[batch_index]
+        output_batch = model(sample_batch)
+        loss = -elbo(output_batch, Y_train[batch_index].T).sum()
+        loss_list.append(loss.item())
+        noise_trace.append(np.round(likelihood.noise_covar.noise.item(),3))
+        iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
+        loss.backward()
+        optimizer.step()
+    model.store(loss_list, likelihood)
         
-        # Define prior for X
-        X_prior_mean = torch.zeros(N, latent_dim)  # shape: N x Q
+    # Save models & training info
     
-        # Define prior for X
-        X_prior_mean = torch.zeros(N, latent_dim)  # shape: N x Q
-        X_init = torch.nn.Parameter(torch.randn(N, latent_dim))
-        
-        # Each inference model differs in its latent variable configuration / 
-        # LatentVariable (X)
-        
-        nn_layers = None
-        if model_name == 'point':
-            
-            X = PointLatentVariable(N, latent_dim, X_init)
-            
-        elif model_name == 'map':
-            
-            prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = MAPLatentVariable(N, latent_dim, X_init, prior_x)
-            
-        elif model_name == 'gaussian':
-            
-            prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = VariationalLatentVariable(N, data_dim, latent_dim, X_init, prior_x)
-        
-        elif model_name == 'pointnet_gaussian':
-            
-            nn_layers = (5,3,2)
-            prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-            X = NNEncoder(N, latent_dim, prior_x, data_dim, layers=nn_layers)
-            
-        elif model_name == 'pointnet_iaf':
-            
-            nn_layers = (5,3,2)
-            context_size = 5
-            n_flows=2
-            X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
-            
-        # Initialise model, likelihood, elbo and optimizer
-        
-        model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
-        likelihood = GaussianLikelihoodWithMissingObs()
-        elbo = VariationalELBO(likelihood, model, num_data=len(Y))
+    print(model.covar_module.base_kernel.lengthscale)
+    model_dict[model_name + '_' + str(SEED)] = model
+    noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
     
-        optimizer = torch.optim.Adam([
-        {'params': model.parameters()},
-        {'params': likelihood.parameters()}
-        ], lr=0.001)
+    ### Saving training report
     
-        # Model params
-        print(f'Training model params for model {model_name}')
-        model.get_trainable_param_names()
+    from utils.visualisation import *
     
-        # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
-        # using the optimizer provided.
+    X_train_mean = model.get_X_mean(Y_train)
+    X_train_scales = model.get_X_scales(Y_train)
+    
+    plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'movie_lens_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
+    
+    #### Saving model with seed 
+    print(f'Saving {model_name} {SEED}')
+    
+    filename = f'movie_lens_{model_name}_{SEED}.pkl'
+    with open(f'pre_trained_models/{filename}', 'wb') as file:
+        pkl.dump(model.state_dict(), file)
+
+    ####################### Testing Framework ################################################
+    if TEST:
+    #Compute latent test & reconstructions
+        with torch.no_grad():
+            model.eval()
+            likelihood.eval()
         
-        loss_list = []
-        noise_trace = []
+        losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
+                                  likelihood, SEED, prior_x=prior_x_test, ae=ae, 
+                                  model_name=model_name,pca=pca)
+            
+        X_test_mean = X_test.q_mu.detach().numpy()
+        Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
+        Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
         
-        iterator = trange(10000, leave=True)
-        batch_size = 100
-        for i in iterator: 
-            batch_index = model._get_batch_idx(batch_size)
-            optimizer.zero_grad()
-            if model_name in ['point','map', 'gauss']:
-                sample = model.sample_latent_variable()  # a full sample returns latent x across all N
-            else:
-                sample = model.sample_latent_variable(Y)
-            sample_batch = sample[batch_index]
-            output_batch = model(sample_batch)
-            loss = -elbo(output_batch, Y[batch_index].T).sum()
-            loss_list.append(loss.item())
-            noise_trace.append(np.round(likelihood.noise_covar.noise.item(),3))
-            iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
-            loss.backward()
-            optimizer.step()
-            
-        # Save models 
-        print(model.covar_module.base_kernel.lengthscale)
-        model_dict[model_name] = model
-        losses_dict[model_name] = loss_list
-            
-    # Plot result
-    
-    plt.figure(figsize=(8, 6))
-    colors = ['r', 'b', 'g']
- 
-    #X = model.X.X.detach().numpy()
-    X = model.X.q_mu.detach().numpy()
-    X = model.X.mu(Y).detach().numpy()
-    #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
-    
-    # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    for i, label in enumerate(np.unique(labels)):
-        #X_i = X[labels == label]
-        #scale_i = std[labels == label]
-        plt.scatter(X_i[:, 0], X_i[:, 9], c=[colors[i]], label=label)
-        #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')
+        # ################################
+        # # # Compute the metrics:
+        from utils.metrics import *
+        
+        # 1) Reconstruction error - Train & Test
+        
+        mse_train = rmse(Y_train, Y_train_recon.T)
+        mse_test = rmse(Y_test, Y_test_recon.T)
+        
+        print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
+        print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+        
+        # 2) Negative Test log-likelihood
+        if model_name in ('point', 'map', 'gauss'):
+            nll = losses_test[-1]/len(Y_test)
+        else:
+            with torch.no_grad():
+                Y_star = model(X_test_mean)
+                nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
+                
+        print(f'Test NLL {model_name} = ' + str(nll))

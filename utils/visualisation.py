@@ -38,7 +38,7 @@ def plot_report(model, losses, labels, colors, save, X_mean, X_scales=None, mode
     # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
     for i, label in enumerate(np.unique(labels)):
         X_i = X_mean[labels == label]
-        plt.scatter(X_i[:, l1], X_i[:, l2], s=2, c=[colors[i]], label=label)
+        plt.scatter(X_i[:, l1], X_i[:, l2], c=[colors[i]], label=label)
         if X_scales is not None:
             scale_i = X_scales[labels == label]
             plt.errorbar(X_i[:, l1], X_i[:, l2], xerr=scale_i[:,l1], yerr=scale_i[:,l2], label=label,c=colors[i], fmt='none')
