@@ -102,7 +102,8 @@ def plot_skeleton(Y_vec, missing_verts=set(), recursive=False):
     ax = fig.add_subplot(projection='3d')
 
     Z = data['skel'].to_xyz(Y_vec)
-    ax.scatter(Z[:, 0], Z[:, 2], Z[:, 1], marker='.', color='b')
+    idx_to_show = ~np.isin(np.arange(len(Z)), list(missing_verts))
+    ax.scatter(Z[idx_to_show, 0], Z[idx_to_show, 2], Z[idx_to_show, 1], marker='.', color='b')
 
     connect = data['skel'].connection_matrix() # Get the connectivity matrix.
     I, J = np.nonzero(connect)
@@ -123,11 +124,12 @@ if __name__ == '__main__':
 
     torch.manual_seed(42)
 
-    data = pods.datasets.cmu_mocap('05', ['01', '11'])
+    motions = [f'{i:02d}' for i in range(1, 3)]
+    data = pods.datasets.cmu_mocap('35', motions)
     data['Y'][:, 0:3] = 0.0
 
     Y = torch.tensor(data['Y']).float()
-    n = len(Y); d = len(Y.T); q = 3
+    n = len(Y); d = len(Y.T); q = 2
     lb = np.where(data['lbls'])[1]
 
     # [vertex.name for vertex in data['skel'].vertices]
@@ -147,7 +149,7 @@ if __name__ == '__main__':
     Y[:, :3] = 0.0
     # plt.imshow(Y)
 
-    model = GPLVM(n, d, q, n_inducing=90)
+    model = GPLVM(n, d, q, n_inducing=30)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -158,7 +160,7 @@ if __name__ == '__main__':
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=40000, batch_size=n)
+    losses = train(model, likelihood, Y, steps=15000, batch_size=n//4)
 
     # if os.path.isfile('for_paper/mocap.pkl'):
     #     with open('for_paper/mocap.pkl', 'rb') as file:
@@ -171,24 +173,12 @@ if __name__ == '__main__':
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 
-    plot_skeleton(Y_full[0, :])
-    plt.title('Ground Truth Walking')
+    plt.ioff()
+    for i in range(90):
+        plot_skeleton(Y_full[i, :], {1}, True)
+        plt.title('Training Data')
+        plt.savefig('img/data_' + str(i) + '.png')
 
-    plot_skeleton(Y_full[0, :], {1}, True)
-    plt.title('Data Walking')
-
-    plot_skeleton(Y_recon[0, :])
-    plt.title('Reconstruction Walking')
-
-    plot_skeleton(Y_full[150, :])
-    plt.title('Ground Truth Dancing')
-
-    plot_skeleton(Y_full[150, :], {1}, True)
-    plt.title('Data Dancing')
-
-    plot_skeleton(Y_recon[150, :])
-    plt.title('Reconstruction Dancing')
-
-    for i in range(n):
         plot_skeleton(Y_recon[i, :])
-        plt.savefig(str(i) + '.png')
+        plt.title('Reconstruction Walking')
+        plt.savefig('img/recons_' + str(i) + '.png')
