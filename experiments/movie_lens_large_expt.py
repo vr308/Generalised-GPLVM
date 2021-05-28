@@ -76,8 +76,8 @@ if __name__ == '__main__':
     Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
     #lb_train, lb_test = train_test_split(labels, test_size=100, random_state=SEED)
     
-    Y_train = torch.Tensor(Y_train)
-    Y_test = torch.Tensor(Y_test)
+    Y_train = torch.tensor(Y_train)
+    Y_test = torch.tensor(Y_test)
       
     # Setting shapes
     N = len(Y_train)
@@ -110,6 +110,18 @@ if __name__ == '__main__':
     
     model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
     likelihood = GaussianLikelihoodWithMissingObs()
+
+    if torch.cuda.is_available():
+        device = 'cuda'
+        model = model.cuda()
+        likelihood = likelihood.cuda()
+        X = X.cuda()
+        Y = Y.cuda()
+        Y_train = Y_train.cuda()
+        Y_test = Y_test.cuda()
+    else:
+        device = 'cpu'
+
     elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.7)
 
     optimizer = torch.optim.Adam([
@@ -127,8 +139,8 @@ if __name__ == '__main__':
     loss_list = []
     noise_trace = []
     
-    iterator = trange(15000, leave=True)
-    batch_size = 100
+    iterator = trange(5000, leave=True)
+    batch_size = 450
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
@@ -153,15 +165,15 @@ if __name__ == '__main__':
     model_dict[model_name + '_' + str(SEED)] = model
     noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
             
-    X_train_mean = model.get_X_mean(Y_train)
-    X_train_scales = model.get_X_scales(Y_train)
+    X_train_mean = model.cpu().get_X_mean(Y_train)
+    X_train_scales = model.cpu().get_X_scales(Y_train)
         
     #### Saving model with seed 
     print(f'Saving {model_name} {SEED}')
     
     filename = f'movie_lens1m_{model_name}_{SEED}.pkl'
     with open(f'pre_trained_models/{filename}', 'wb') as file:
-        pkl.dump(model.state_dict(), file)
+        pkl.dump(model.cpu().state_dict(), file)
 
     ####################### Testing Framework ################################################
     if TEST:
