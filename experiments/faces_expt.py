@@ -78,18 +78,18 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     n, d, q, X, Y, lb = load_real_data('brendan_faces')
-    q = 2; Y /= 255
+    q = 5; Y /= 255
 
     # remove some obs from Y
     Y_full = Y.clone()
-    idx_a = np.random.choice(range(n), n * int(d/3))
-    idx_b = np.random.choice(range(d), n * int(d/3))
+    idx_a = np.random.choice(range(n), n * int(d/2))
+    idx_b = np.random.choice(range(d), n * int(d/2))
     Y[idx_a, idx_b] = np.nan
     # (Y.isnan().sum(axis=1) == d).any() # False hopefully
 
     # plt.imshow(Y[0].reshape(28, 28))
 
-    model = GPLVM(n, d, q, n_inducing=20, n_flows=0)
+    model = GPLVM(n, d, q, n_inducing=120, n_flows=0)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -101,15 +101,15 @@ if __name__ == '__main__':
 
     Y = torch.tensor(Y, device=device)
     model.X.jitter = model.X.jitter.to(device=device)
-    losses = train(model, likelihood, Y, steps=10000, batch_size=500)
+    losses = train(model, likelihood, Y, steps=10000, batch_size=450)
 
-    if os.path.isfile('for_paper/faces_model_params_no_flow.pkl'):
-        with open('for_paper/faces_model_params_no_flow.pkl', 'rb') as file:
+    if os.path.isfile('for_paper/faces_5dim_latent.pkl'):
+        with open('for_paper/faces_5dim_latent.pkl', 'rb') as file:
             model_sd, likl_sd = pkl.load(file)
             model.load_state_dict(model_sd)
             likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/faces_model_params_no_flow.pkl', 'wb') as file:
+    with open('for_paper/faces_5dim_latent.pkl', 'wb') as file:
         pkl.dump((model.state_dict(), likelihood.state_dict()), file)
 
     samples = model.X.get_latent_flow_means().detach().cpu()
