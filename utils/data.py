@@ -136,13 +136,16 @@ def load_real_data(dataset_name):
         _fetch(url, folder)
         data = pd.read_csv(data_path(folder) + '/ml-1m/ratings.dat', sep='::', names=[
                            'userId', 'itemId', 'rating', 'timestamp'])
-    
-        movies = pd.read_csv(data_path(folder) + '/ml-1m/movies.dat', sep='::', names=[
-                    'itemId', 'title', 'genre'],
-            encoding='latin')
-        movies = pd.merge(movies, movies['genre'].str.split('|', expand=True), left_index=True, right_index=True)
+
+        # movies = pd.read_csv(data_path(folder) + '/ml-1m/movies.dat', sep='::', names=[
+        #             'itemId', 'title', 'genre'],
+        #     encoding='latin')
+        # movies = pd.merge(movies, movies['genre'].str.split('|', expand=True), left_index=True, right_index=True)
         # return data, movies
-        Y = float_tensor(np.array(data))
+        Y = data.pivot_table(index='userId', columns='itemId',
+                             values='rating')
+        Y = float_tensor(np.array(Y))
+
         labels = None
 
     else:
