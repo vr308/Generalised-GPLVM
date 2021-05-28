@@ -79,7 +79,7 @@ class BayesianGPLVM(ApproximateGP):
         
         return test_model
     
-    def predict_latent(self, Y_train, Y_test, lr, likelihood, seed, prior_x=None, ae=True, model_name='nn_gauss', pca=True):
+    def predict_latent(self, Y_train, Y_test, lr, likelihood, seed, prior_x=None, ae=True, model_name='nn_gauss', pca=True, steps=5000):
         
         if ae is True: # A says make into a LatentVariable attribute
            
@@ -113,7 +113,7 @@ class BayesianGPLVM(ApproximateGP):
                 print(name)
                 
             loss_list = []
-            iterator = trange(2000, leave=True)
+            iterator = trange(steps, leave=True)
             batch_size = len(Y_test) if len(Y_test) < 100 else 100
             for i in iterator: 
                 batch_index = test_model._get_batch_idx(batch_size)

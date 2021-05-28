@@ -12,10 +12,11 @@ Script for experiments with MovieLens100K / MovieLens1m
 from utils.data import load_real_data 
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder, IAFEncoder
+from models.latent_variable import VariationalLatentVariable
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
+import os 
 import pickle as pkl
 from tqdm import trange
 from gpytorch.means import ConstantMean, ZeroMean
@@ -27,10 +28,6 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 from sklearn.model_selection import train_test_split
-
-def _init_pca(Y, latent_dim):
-    U, S, V = torch.pca_lowrank(Y, q = latent_dim)
-    return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
 class MovieLensModel(BayesianGPLVM):
      def __init__(self, n, data_dim, latent_dim, n_inducing, X, nn_layers=None):
@@ -48,8 +45,8 @@ class MovieLensModel(BayesianGPLVM):
         super(MovieLensModel, self).__init__(X, q_f)
         
         # Kernel 
-        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        #self.mean_module = ZeroMean()
+        #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
+        self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
 
      def forward(self, X):
@@ -88,8 +85,8 @@ if __name__ == '__main__':
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 12
-    n_inducing = 25
+    latent_dim = 11
+    n_inducing = 32
     pca = False
     
     # Run all 4 models and store results
@@ -98,11 +95,7 @@ if __name__ == '__main__':
     X_prior_mean = torch.zeros(N, latent_dim)  # shape: N x Q
     X_prior_mean_test = X_prior_mean[0:len(Y_test),:]
 
-    # Initialise X with PCA or 0s.
-    if pca == True:
-          X_init = _init_pca(Y_train, latent_dim) # Initialise X to PCA 
-    else:
-          X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
+    X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
     
     # Each inference model differs in its latent variable configuration / 
     # LatentVariable (X)
@@ -119,13 +112,13 @@ if __name__ == '__main__':
     # Initialise model, likelihood, elbo and optimizer
     
     model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
-    likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
-    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train))
+    likelihood = GaussianLikelihoodWithMissingObs()
+    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.7)
 
     optimizer = torch.optim.Adam([
     {'params': model.parameters()},
     {'params': likelihood.parameters()}
-    ], lr=0.001)
+    ], lr=0.005)
 
     # Model params
     print(f'Training model params for model {model_name}')
@@ -137,7 +130,7 @@ if __name__ == '__main__':
     loss_list = []
     noise_trace = []
     
-    iterator = trange(7500, leave=True)
+    iterator = trange(15000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
@@ -151,15 +144,18 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
     model.store(loss_list, likelihood)
+    
+    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
+       with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
+           model_sd = pkl.load(file)
+           model.load_state_dict(model_sd)
         
     # Save models & training info
     
     print(model.covar_module.base_kernel.lengthscale)
     model_dict[model_name + '_' + str(SEED)] = model
     noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
-    
-    ### Saving training report
-        
+            
     X_train_mean = model.get_X_mean(Y_train)
     X_train_scales = model.get_X_scales(Y_train)
     
@@ -181,23 +177,23 @@ if __name__ == '__main__':
         
         losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
                                   likelihood, SEED, prior_x=prior_x_test, ae=ae, 
-                                  model_name=model_name,pca=pca)
+                                  model_name=model_name,pca=pca, steps=7000)
             
         X_test_mean = X_test.q_mu.detach().numpy()
-        #Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
+        Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
         #Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
         
         # ################################
         # # # Compute the metrics:
-        # from utils.metrics import *
+        from utils.metrics import *
         
-        # # 1) Reconstruction error - Train & Test
+        # 1) Reconstruction error - Train & Test
         
-        # mse_train = rmse_missing(Y_train, Y_train_recon.T)
-        # mse_test = rmse_missing(Y_test, Y_test_recon.T)
+        #mse_train = rmse_missing(Y_train, Y_train_recon.T)
+        mse_test = rmse_missing(Y_test, Y_test_recon.T.detach())
         
-        # print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
-        # print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+        #print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
+        print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
         
         # # 2) Negative Test log-likelihood
         # if model_name in ('point', 'map', 'gauss'):

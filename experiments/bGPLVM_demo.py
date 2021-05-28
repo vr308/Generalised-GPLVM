@@ -152,8 +152,8 @@ if __name__ == '__main__':
         
     # Save model
     
-    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_32.pkl'):
-        with open('pre_trained_models/movie_lens100k_gauss_32.pkl', 'rb') as file:
+    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
+        with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
             model_sd = pkl.load(file)
             model.load_state_dict(model_sd)
 

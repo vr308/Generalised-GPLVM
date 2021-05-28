@@ -14,11 +14,8 @@ import numpy as np
 from torch import tensor as tt
 import sklearn.datasets as skd
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-import pyro
-import pyro.contrib.gp as gp
 import pyro.distributions as dist
-
+from utils.data_utils import data_path, resource, dependency
 
 def float_tensor(X): return torch.tensor(X).float()
 
@@ -109,7 +106,7 @@ def load_real_data(dataset_name):
         Y = float_tensor(pods.datasets.brendan_faces()['Y'])
         labels = None
 
-    elif dataset_name == 'movie_lens':
+    elif dataset_name == 'movie_lens_100k':
 
         # movies = movies.loc[
         #    (movies.Sci_Fi == 1) | (movies.Romance == 1), 'itemId'].tolist()
@@ -122,6 +119,31 @@ def load_real_data(dataset_name):
 
         labels = None
         Y = float_tensor(np.array(Y))
+        
+    elif dataset_name == 'movie_lens_1m':
+        
+        import pandas as pd
+        
+        def _fetch(url, folder):
+          resource(target=data_path(folder,  folder + '.zip'),
+                   url=url)
+          dependency(target=data_path(folder, 'ml'),
+                     source=data_path(folder,  folder + '.zip'),
+                     commands=['unzip ' + folder + '.zip' + ' -d ' + data_path(folder,'')])
+        
+        folder = 'movie_lens_1m'
+        url =  'http://files.grouplens.org/datasets/movielens/ml-1m.zip'
+        _fetch(url, folder)
+        data = pd.read_csv(data_path(folder) + '/ml-1m/ratings.dat', sep='::', names=[
+                           'userId', 'itemId', 'rating', 'timestamp'])
+    
+        movies = pd.read_csv(data_path(folder) + '/ml-1m/movies.dat', sep='::', names=[
+                    'itemId', 'title', 'genre'],
+            encoding='latin')
+        movies = pd.merge(movies, movies['genre'].str.split('|', expand=True), left_index=True, right_index=True)
+        # return data, movies
+        Y = float_tensor(np.array(data))
+        labels = None
 
     else:
         raise NotImplementedError(str(dataset_name) + ' data not implemented')
@@ -324,58 +346,58 @@ def generate_synthetic_data(n=300, x_type=None, y_type='hi_dim'):
     q = 2
     return n, d, q, X, Y, labels
 
-def create_batch_gp_data(X, labels, dim_y = 2, num_gp=2, kernel=None):
+# def create_batch_gp_data(X, labels, dim_y = 2, num_gp=2, kernel=None):
     
-    dim_latent = len(X.T)
-    if kernel is None:
-        kernel = gp.kernels.RBF(input_dim=dim_latent, variance=torch.tensor([2.]),
-                            lengthscale=torch.tensor([1., 3.0]))
+#     dim_latent = len(X.T)
+#     if kernel is None:
+#         kernel = gp.kernels.RBF(input_dim=dim_latent, variance=torch.tensor([2.]),
+#                             lengthscale=torch.tensor([1., 3.0]))
     
-    cov = float_tensor(kernel.forward(X) + 1e-5*torch.eye(len(X)))
-    samples = dist.MultivariateNormal(torch.zeros(len(X)), covariance_matrix=cov).sample(sample_shape=(dim_y,))
-    return samples.T
+#     cov = float_tensor(kernel.forward(X) + 1e-5*torch.eye(len(X)))
+#     samples = dist.MultivariateNormal(torch.zeros(len(X)), covariance_matrix=cov).sample(sample_shape=(dim_y,))
+#     return samples.T
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    plt.ion()
-    plt.style.use('ggplot')
+#     plt.ion()
+#     plt.style.use('ggplot')
 
-    X = {}
-    X['blobs'], b_labels = _load_2d_synthetic_latent('blobs')
-    X['varied'], v_labels = _load_2d_synthetic_latent('varied')
-    X['circles'], nc_labels = _load_2d_synthetic_latent('noisy_circles')
-    X['moons'], mm_labels = _load_2d_synthetic_latent('make_moons')
-    # X['potential'] = _load_2d_weird_latent(1000)
+#     X = {}
+#     X['blobs'], b_labels = _load_2d_synthetic_latent('blobs')
+#     X['varied'], v_labels = _load_2d_synthetic_latent('varied')
+#     X['circles'], nc_labels = _load_2d_synthetic_latent('noisy_circles')
+#     X['moons'], mm_labels = _load_2d_synthetic_latent('make_moons')
+#     # X['potential'] = _load_2d_weird_latent(1000)
 
-    labels = {}
-    labels['blobs'] = b_labels
-    labels['varied'] = v_labels
-    labels['circles'] = nc_labels
-    labels['moons'] = mm_labels
+#     labels = {}
+#     labels['blobs'] = b_labels
+#     labels['varied'] = v_labels
+#     labels['circles'] = nc_labels
+#     labels['moons'] = mm_labels
     
-    kernel = gp.kernels.Matern32(input_dim=2, variance=torch.tensor([1.]),
-                            lengthscale=torch.tensor([1., 2.0]))
+#     kernel = gp.kernels.Matern32(input_dim=2, variance=torch.tensor([1.]),
+#                             lengthscale=torch.tensor([1., 2.0]))
     
-    Y = {}
-    Y['blobs'] = create_batch_gp_data(torch.tensor(X['blobs']), b_labels, dim_y = 2, num_gp=2, kernel=kernel)
-    Y['varied'] = create_batch_gp_data(torch.tensor(X['varied']), v_labels, dim_y = 2, num_gp=2, kernel=kernel)
-    Y['circles'] = create_batch_gp_data(torch.tensor(X['circles']), nc_labels, dim_y = 2, num_gp=2, kernel=kernel)
-    Y['moons'] = create_batch_gp_data(torch.tensor(X['moons']), mm_labels, dim_y = 2, num_gp=2, kernel=kernel)
+#     Y = {}
+#     Y['blobs'] = create_batch_gp_data(torch.tensor(X['blobs']), b_labels, dim_y = 2, num_gp=2, kernel=kernel)
+#     Y['varied'] = create_batch_gp_data(torch.tensor(X['varied']), v_labels, dim_y = 2, num_gp=2, kernel=kernel)
+#     Y['circles'] = create_batch_gp_data(torch.tensor(X['circles']), nc_labels, dim_y = 2, num_gp=2, kernel=kernel)
+#     Y['moons'] = create_batch_gp_data(torch.tensor(X['moons']), mm_labels, dim_y = 2, num_gp=2, kernel=kernel)
 
-    plt.figure(figsize=(12, 4))
-    for i, (key, data) in enumerate(X.items()):
-        plt.subplot(1, 4, i+1)
-        plt.scatter(data[:, 0], data[:, 1], s=1, c=labels[key])
-        plt.title(key, fontsize='small')
-    plt.suptitle('2d Synthetic Latent Distributions',  fontsize='small')
+#     plt.figure(figsize=(12, 4))
+#     for i, (key, data) in enumerate(X.items()):
+#         plt.subplot(1, 4, i+1)
+#         plt.scatter(data[:, 0], data[:, 1], s=1, c=labels[key])
+#         plt.title(key, fontsize='small')
+#     plt.suptitle('2d Synthetic Latent Distributions',  fontsize='small')
     
-    plt.figure(figsize=(12, 4))
-    for i, (key, data) in enumerate(Y.items()):
-        plt.subplot(1, 4, i+1)
-        plt.scatter(data[:,0], data[:,1], s=1, c=labels[key])
-        plt.title(key, fontsize='small')
-    plt.suptitle('2d Synthetic Latent Distributions warped by Independent Gaussian Processes',  fontsize='small')
+#     plt.figure(figsize=(12, 4))
+#     for i, (key, data) in enumerate(Y.items()):
+#         plt.subplot(1, 4, i+1)
+#         plt.scatter(data[:,0], data[:,1], s=1, c=labels[key])
+#         plt.title(key, fontsize='small')
+#     plt.suptitle('2d Synthetic Latent Distributions warped by Independent Gaussian Processes',  fontsize='small')
     
         
     
