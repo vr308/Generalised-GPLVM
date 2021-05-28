@@ -101,49 +101,87 @@ if __name__ == '__main__':
 
     Y = torch.tensor(Y, device=device)
     model.X.jitter = model.X.jitter.to(device=device)
-    losses = train(model, likelihood, Y, steps=10000, batch_size=450)
+    losses = train(model, likelihood, Y, steps=10, batch_size=450)
 
-    if os.path.isfile('for_paper/faces_5dim_latent.pkl'):
-        with open('for_paper/faces_5dim_latent.pkl', 'rb') as file:
+    if os.path.isfile('for_paper/faces_cpu.pkl'):
+        with open('for_paper/faces_cpu.pkl', 'rb') as file:
             model_sd, likl_sd = pkl.load(file)
             model.load_state_dict(model_sd)
             likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/faces_5dim_latent.pkl', 'wb') as file:
-        pkl.dump((model.state_dict(), likelihood.state_dict()), file)
+    #with open('for_paper/faces_5dim_latent.pkl', 'wb') as file:
+    #   pkl.dump((model.state_dict(), likelihood.state_dict()), file)
 
     samples = model.X.get_latent_flow_means().detach().cpu()
-    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb)
-
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    fig.suptitle('Reconstructions')
+    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.1, c=lb)
+    
+    
+    from mpl_toolkits.axes_grid1 import ImageGrid
+    
+    fig = plt.figure(figsize=(16,3))
+    
+    grid1 = ImageGrid(fig, 133, nrows_ncols=(3,7), axes_pad=0.001)
+    
     k = 10
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(model(samples[[k], :].cuda()).loc[:, 0].detach().reshape(28, 20).cpu())
-            axs[i, j].axis('off')
-    plt.subplots_adjust(wspace=0, hspace=0.02)
-
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    fig.suptitle('Faces Data')
+    #images = model(samples[[k], :]).loc[:, 0]
+    for axs in grid1:
+              k += 1
+              axs.imshow(model(samples[[k], :]).loc[:, 0].detach().reshape(28, 20))
+              axs.axis('off')
+    grid1.axes_all[3].set_title('Reconstructions', fontsize='small')
+        
+    grid2 = ImageGrid(fig, 132, nrows_ncols=(3,7), axes_pad=0.001)
+    
     k = 10
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(Y[k].reshape(28, 20).cpu())
-            axs[i, j].axis('off')
-    plt.subplots_adjust(wspace=0, hspace=0.02)
-
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    fig.suptitle('Faces Data without Missingness')
+    #images = model(samples[[k], :]).loc[:, 0]
+    for axs in grid2:
+              k += 1
+              axs.imshow(Y[k].reshape(28, 20).cpu())
+              axs.axis('off')
+    grid2.axes_all[3].set_title('Train', fontsize='small')
+    
+    grid3 = ImageGrid(fig, 131, nrows_ncols=(3,7), axes_pad=0.01)
+    
     k = 10
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(Y_full[k].reshape(28, 20).cpu())
-            axs[i, j].axis('off')
-    plt.subplots_adjust(wspace=0, hspace=0.02)
+    #images = model(samples[[k], :]).loc[:, 0]
+    for axs in grid3:
+              k += 1
+              axs.imshow(Y_full[k].reshape(28, 20).cpu())
+              axs.axis('off')
+    grid3.axes_all[3].set_title('Ground Truth', fontsize='small')
+
+     
+    
+
+    # plt.style.use('seaborn-deep')
+    # axs = plt.subplots(3, 7)
+    # fig.suptitle('Reconstructions')
+    # k = 10
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(model(samples[[k], :]).loc[:, 0].detach().reshape(28, 20))
+    #         axs[i, j].axis('off')
+    # plt.subplots_adjust(wspace=0, hspace=0.02)
+
+    # plt.style.use('seaborn-deep')
+    # fig, axs = plt.subplots(3, 7)
+    # fig.suptitle('Faces Data')
+    # k = 10
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(Y[k].reshape(28, 20).cpu())
+    #         axs[i, j].axis('off')
+    # plt.subplots_adjust(wspace=0, hspace=0.02)
+
+    # plt.style.use('seaborn-deep')
+    # fig, axs = plt.subplots(3, 7)
+    # fig.suptitle('Ground Truth')
+    # k = 10
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(Y_full[k].reshape(28, 20).cpu())
+    #         axs[i, j].axis('off')
+    # plt.subplots_adjust(wspace=0, hspace=0.02)
