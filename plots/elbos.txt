@@ -1,0 +1,3 @@
+dataset, point_rmse, point_se, map_rmse, map_se, gauss_rmse, gauss_se, nn_gauss_rmse, nn_gauss_se
+oilflow, -27.24, 1.8, 85.53, 1.2, -1.975, 0.39, -3.96, 0.169
+qpcr, 38.5, 2.7, 261.2, 3.5, 47.5, 2.4, 44.58, 0.89

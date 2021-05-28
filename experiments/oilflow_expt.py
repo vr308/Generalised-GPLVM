@@ -289,6 +289,33 @@ for _ in range(1):
                     
             print(f'Test NLL {model_name} = ' + str(nll))
     
+    
+lb_train_dict = {}
+Y_train_dict = {}
+
+lb_train_dict[SEED] = lb_train
+Y_train_dict[SEED] = Y_train
+
+## Oilflow plot for the paper
+
+models = [model_dict['point_19'], model_dict['map_15'], model_dict['gauss_19'], model_dict['nn_gauss_15']]
+labels = [lb_train_dict[19], lb_train_dict[15], lb_train_dict[19], lb_train_dict[15]]
+Y_trains = [Y_train_dict[19], Y_train_dict[15], Y_train_dict[19], Y_train_dict[15]]
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
         # metrics_df = pd.DataFrame(columns=['-elbo','mse','tll'], index=['Gaussian','Flows'])
         
         # metrics_df['-elbo'] = [losses[-1], losses_flow[-1]]

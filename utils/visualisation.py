@@ -14,6 +14,128 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import seaborn as sns
 plt.style.use('ggplot')
 
+
+def plot_quad_latents(models, Y_trains, labels, colors, plot_order, model_names, titles):
+    
+    plt.figure(figsize=(13,3))
+    
+    j = 0
+    
+    for model, label, Y_train, title, m_name in zip(models, labels, Y_trains, titles, model_names):
+    
+        inv_lengthscale = 1/model.covar_module.base_kernel.lengthscale
+        #print(inv_lengthscale)
+                
+        values, indices = torch.topk(model.covar_module.base_kernel.lengthscale, k=2,largest=False)
+        
+        l1 = indices.numpy().flatten()[0]
+        l2 = indices.numpy().flatten()[1]
+        
+        if m_name in ('point', 'map'):
+            X_mean = model.X.X.detach().numpy()
+            X_scales = None
+        elif m_name == 'gauss':
+            X_mean = model.X.q_mu.detach().numpy()
+            X_scales = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
+        elif m_name == 'nn_gauss':
+            model.X.jitter = 1e-5
+            X_mean = model.X.mu(torch.Tensor(Y_train)).detach().numpy()
+            X_scales = np.array([torch.sqrt(x.diag()).numpy() for x in model.X.sigma(torch.Tensor(Y_train)).detach()])
+        
+        print(m_name)
+        print(j)
+        plt.subplot(1,4, j+1)
+        #plt.title(f'2d latent subspace [{model_name}]',fontsize='small')
+        plt.xlabel(r'$x_{1}$', fontsize='medium')
+        plt.ylabel(r'$x_{2}$', fontsize='medium')
+        # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
+        for i, l in enumerate(np.unique(label)):
+            X_i = X_mean[label == l]
+            plt.scatter(X_i[:, l1], X_i[:, l2], c=[colors[i]], s=1, label=label)
+            if X_scales is not None:
+                scale_i = X_scales[label == l]
+                plt.errorbar(X_i[:, l1], X_i[:, l2], xerr=scale_i[:,l1], yerr=scale_i[:,l2], label=label,c=colors[i], fmt='none')
+        plt.title(title)
+        j = j+1
+        
+def plot_lengthscales(models, Y_trains, labels, colors, plot_order, model_names, titles):
+    
+    
+    plt.figure(figsize=(13,3))
+    j = 0
+    for model, label, Y_train, title, m_name in zip(models, labels, Y_trains, titles, model_names):
+    
+        inv_lengthscale = 1/model.covar_module.base_kernel.lengthscale
+        #print(inv_lengthscale)
+        
+        latent_dim = model.X.latent_dim
+                
+        values, indices = torch.topk(model.covar_module.base_kernel.lengthscale, k=2,largest=False)
+        
+        plt.subplot(1,4,j+1)
+        plt.bar(np.arange(latent_dim), height=inv_lengthscale.detach().numpy().flatten(), color='teal')
+        #plt.title('Inverse lengthscale with SE-ARD kernel (10d)', fontsize='small')
+        plt.xlabel('Latent dims', fontsize='medium')
+        plt.xticks(np.arange(0,10))
+        j = j+1
+    plt.suptitle('Inverse Lengthscales SE-ARD Kernel (10d)')
+    
+
+def plot_train_test_error_elbo_report():
+    
+    import pandas as pd
+    
+    train = pd.read_csv('plots/train_rmse.txt', sep=', ')
+    test = pd.read_csv('plots/test_rmse.txt', sep=', ')
+    elbos = pd.read_csv('plots/elbos.txt', sep=', ')
+
+    plt.style.use('ggplot')
+    
+    fig = plt.figure(figsize=(7,3))
+    colors = ['r', 'b', 'orange', 'magenta']
+    datasets = ['oilflow', 'qpcr']
+    titles = ['Oilflow', 'qPCR']
+    model_cols = ['point_', 'map_', 'gauss_', 'nn_gauss_']
+    names = ['Point','MAP','B-SVI','AEB-SVI']
+    for i in range(2): # iterate over datasets
+        ax = fig.add_subplot(1,2, i + 1)
+        df_train = train[train.dataset == datasets[i]]
+        df_test = test[test.dataset== datasets[i]]
+        for m in range(4): # iterate over models within each subplot
+            mean_tr = df_train[[col for col in df_train if col.startswith(model_cols[m])][0]].item()
+            mean_te = df_test[[col for col in df_test if col.startswith(model_cols[m])][0]].item()
+            se_tr = df_train[[col for col in df_train if col.startswith(model_cols[m])][1]].item()
+            se_te = df_test[[col for col in df_test if col.startswith(model_cols[m])][1]].item()
+            ax.errorbar(y=[mean_tr, mean_te], x=[1,1.2], xerr=[se_tr, se_te], c=colors[m], marker='o', barsabove=True, capsize=4, fmt='-', label=names[m])
+            ax.set_title(titles[i], fontsize='small')
+            ax.set_xticks([1,1.2])
+            ax.set_xticklabels(['Train', 'Test'])
+        ax.legend()
+        
+    
+    fig = plt.figure(figsize=(7,3))
+    colors = ['r', 'b', 'orange', 'magenta']
+    datasets = ['oilflow', 'qpcr']
+    titles = ['Oilflow', 'qPCR']
+    model_cols = ['point_', 'map_', 'gauss_', 'nn_gauss_']
+    names = ['Point','MAP','B-SVI','AEB-SVI']
+    for i in range(2): # iterate over datasets
+        ax = fig.add_subplot(1,2, i + 1)
+        df = elbos[elbos.dataset == datasets[i]]
+        for m in range(4): # iterate over models within each subplot
+            mean = df[[col for col in df if col.startswith(model_cols[m])][0]].item()
+            se = df[[col for col in df if col.startswith(model_cols[m])][1]].item()
+            ax.errorbar(y=m, x=mean, xerr=se, c=colors[m], marker='o', barsabove=True, capsize=4, fmt='-', label=names[m])
+            ax.set_title(titles[i], fontsize='small')
+            ax.set_yticks([0,1,2,3])
+            ax.set_yticklabels(names)
+            ax.set_xlabel('Neg. ELBO Loss', fontsize='small')
+    ax.set_xscale('log')
+    ax.legend()
+        
+    
+        
+
 def plot_report(model, losses, labels, colors, save, X_mean, X_scales=None, model_name=None):
     
     plt.figure(figsize=(12,4))

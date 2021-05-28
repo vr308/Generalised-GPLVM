@@ -113,7 +113,7 @@ class BayesianGPLVM(ApproximateGP):
                 print(name)
                 
             loss_list = []
-            iterator = trange(15000, leave=True)
+            iterator = trange(2000, leave=True)
             batch_size = len(Y_test) if len(Y_test) < 100 else 100
             for i in iterator: 
                 batch_index = test_model._get_batch_idx(batch_size)

@@ -368,6 +368,9 @@ class VariationalLatentVariable(LatentVariable):
 
     def forward(self, batch_idx=None):
         
+        if batch_idx is None:
+            batch_idx = np.arange(self.n) 
+        
         q_mu_batch = self.q_mu[batch_idx, ...]
         q_log_sigma_batch = self.q_log_sigma[batch_idx, ...]
 

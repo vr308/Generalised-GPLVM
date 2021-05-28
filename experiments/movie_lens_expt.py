@@ -16,6 +16,7 @@ from models.latent_variable import PointLatentVariable, MAPLatentVariable, Varia
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
+import pickle as pkl
 from tqdm import trange
 from gpytorch.means import ConstantMean, ZeroMean
 from gpytorch.mlls import VariationalELBO
@@ -39,7 +40,7 @@ class MovieLensModel(BayesianGPLVM):
         
         # Locations Z_{d} corresponding to u_{d}, they can be randomly initialized or 
         # regularly placed with shape (D x n_inducing x latent_dim).
-        self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
+        self.inducing_inputs = torch.randn(n_inducing, latent_dim)
     
         # Sparse Variational Formulation
         q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=self.batch_shape) 
@@ -69,17 +70,17 @@ if __name__ == '__main__':
     noise_trace_dict = {}
     
     TEST = True
-    increment = np.random.randint(0,100,3)
+    increment = np.random.randint(0,100,1)
     
-    SEED = 7 + np.random.randint()
+    SEED = 7 + increment[0]
     torch.manual_seed(SEED)
 
     # Load some data
     
-    N, d, q, X, Y, labels = load_real_data('oilflow')
+    N, d, q, X, Y, labels = load_real_data('movie_lens')
     
-    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
-    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
+    #lb_train, lb_test = train_test_split(labels, test_size=100, random_state=SEED)
     
     Y_train = torch.Tensor(Y_train)
     Y_test = torch.Tensor(Y_test)
@@ -87,8 +88,8 @@ if __name__ == '__main__':
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 15
-    n_inducing = 32
+    latent_dim = 12
+    n_inducing = 25
     pca = False
     
     # Run all 4 models and store results
@@ -118,7 +119,7 @@ if __name__ == '__main__':
     # Initialise model, likelihood, elbo and optimizer
     
     model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
-    likelihood = GaussianLikelihoodWithMissingObs()
+    likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
     elbo = VariationalELBO(likelihood, model, num_data=len(Y_train))
 
     optimizer = torch.optim.Adam([
@@ -136,17 +137,16 @@ if __name__ == '__main__':
     loss_list = []
     noise_trace = []
     
-    iterator = trange(50000, leave=True)
+    iterator = trange(7500, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
-        sample = model.sample_latent_variable(batch_index)  # a full sample returns latent x across all N
-        sample_batch = sample[batch_index]
+        sample_batch = model.sample_latent_variable(batch_idx=batch_index)  # a batched sample
         output_batch = model(sample_batch)
         loss = -elbo(output_batch, Y_train[batch_index].T).sum()
         loss_list.append(loss.item())
-        noise_trace.append(np.round(likelihood.noise_covar.noise.item(),3))
+        #noise_trace.append(np.round(likelihood.noise_covar.noise.item(),3))
         iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
         loss.backward()
         optimizer.step()
@@ -159,18 +159,16 @@ if __name__ == '__main__':
     noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
     
     ### Saving training report
-    
-    from utils.visualisation import *
-    
+        
     X_train_mean = model.get_X_mean(Y_train)
     X_train_scales = model.get_X_scales(Y_train)
     
-    plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'movie_lens_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
+    #plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'movie_lens_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
     
     #### Saving model with seed 
     print(f'Saving {model_name} {SEED}')
     
-    filename = f'movie_lens_{model_name}_{SEED}.pkl'
+    filename = f'movie_lens100k_{model_name}_{SEED}.pkl'
     with open(f'pre_trained_models/{filename}', 'wb') as file:
         pkl.dump(model.state_dict(), file)
 
@@ -186,27 +184,27 @@ if __name__ == '__main__':
                                   model_name=model_name,pca=pca)
             
         X_test_mean = X_test.q_mu.detach().numpy()
-        Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
-        Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
+        #Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
+        #Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
         
         # ################################
         # # # Compute the metrics:
-        from utils.metrics import *
+        # from utils.metrics import *
         
-        # 1) Reconstruction error - Train & Test
+        # # 1) Reconstruction error - Train & Test
         
-        mse_train = rmse(Y_train, Y_train_recon.T)
-        mse_test = rmse(Y_test, Y_test_recon.T)
+        # mse_train = rmse_missing(Y_train, Y_train_recon.T)
+        # mse_test = rmse_missing(Y_test, Y_test_recon.T)
         
-        print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
-        print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+        # print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
+        # print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
         
-        # 2) Negative Test log-likelihood
-        if model_name in ('point', 'map', 'gauss'):
-            nll = losses_test[-1]/len(Y_test)
-        else:
-            with torch.no_grad():
-                Y_star = model(X_test_mean)
-                nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
+        # # 2) Negative Test log-likelihood
+        # if model_name in ('point', 'map', 'gauss'):
+        #     nll = losses_test[-1]/len(Y_test)
+        # else:
+        #     with torch.no_grad():
+        #         Y_star = model(X_test_mean)
+        #         nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
                 
-        print(f'Test NLL {model_name} = ' + str(nll))
+        # print(f'Test NLL {model_name} = ' + str(nll))

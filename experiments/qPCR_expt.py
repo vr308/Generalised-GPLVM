@@ -93,9 +93,9 @@ if __name__ == '__main__':
 model_dict = {}
 noise_trace_dict = {}
 
-for _ in range(2):
+for i in range(2):
     
-    SEED = 7 + increment[_]
+    SEED = 7 + increment[i]
     torch.manual_seed(SEED)
 
     # Load some data

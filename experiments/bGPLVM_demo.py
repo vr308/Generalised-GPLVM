@@ -152,11 +152,10 @@ if __name__ == '__main__':
         
     # Save model
     
-    if os.path.isfile('pre_trained_models/model_params_no_flow.pkl'):
-        with open('pre_trained_models/model_params_no_flow.pkl', 'rb') as file:
-            model_sd, likl_sd = pkl.load(file)
+    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_32.pkl'):
+        with open('pre_trained_models/movie_lens100k_gauss_32.pkl', 'rb') as file:
+            model_sd = pkl.load(file)
             model.load_state_dict(model_sd)
-            likelihood.load_state_dict(likl_sd)
 
     filename = f'oilflow_{model_name}_{SEED}.pkl'
     with open(f'pre_trained_models/{filename}', 'wb') as file:
