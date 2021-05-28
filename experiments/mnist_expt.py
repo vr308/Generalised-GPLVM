@@ -78,11 +78,8 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     n, d, q, X, Y, lb = load_real_data('mnist')
-    q = 2; Y /= 255
-
-    Y = Y[np.isin(lb, (1, 7)), :]
-    lb = lb[np.isin(lb, (1, 7))]
-    n = len(Y)
+    q = 5; Y /= 255
+    Y = Y[:10000]; n = len(Y)
 
     # remove some obs from Y
     Y_full = Y.clone()
@@ -93,7 +90,7 @@ if __name__ == '__main__':
 
     # plt.imshow(Y[0].reshape(28, 28))
 
-    model = GPLVM(n, d, q, n_inducing=20, n_flows=0)
+    model = GPLVM(n, d, q, n_inducing=120, n_flows=0)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -105,19 +102,19 @@ if __name__ == '__main__':
 
     Y = torch.tensor(Y, device=device)
     model.X.jitter = model.X.jitter.to(device=device)
-    losses = train(model, likelihood, Y, steps=10000, batch_size=500)
+    losses = train(model, likelihood, Y, steps=10000, batch_size=450)
 
-    if os.path.isfile('for_paper/model_params_no_flow.pkl'):
-        with open('for_paper/model_params_no_flow.pkl', 'rb') as file:
+    if os.path.isfile('for_paper/mnist_full.pkl'):
+        with open('for_paper/mnist_full.pkl', 'rb') as file:
             model_sd, likl_sd = pkl.load(file)
             model.load_state_dict(model_sd)
             likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/model_params_no_flow.pkl', 'wb') as file:
+    with open('for_paper/mnist_full.pkl', 'wb') as file:
         pkl.dump((model.state_dict(), likelihood.state_dict()), file)
 
     samples = model.X.get_latent_flow_means().detach().cpu()
-    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb)
+    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb[:10000])
 
     plt.style.use('seaborn-deep')
     fig, axs = plt.subplots(3, 7)
