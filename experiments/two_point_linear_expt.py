@@ -7,37 +7,82 @@ plt.ion(); plt.style.use('ggplot')
 
 from utils.data import generate_synthetic_data
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import IAFEncoder
+from models.latent_variable import LatentVariable, flow_det_loss_term, kl_gaussian_loss_term, IAF
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from utils.visualisation import plot_y_reconstruction
 
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
-from gpytorch.priors import NormalPrior, MultivariateNormalPrior
+from gpytorch.priors import NormalPrior
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import LinearKernel
 from gpytorch.distributions import MultivariateNormal
 
+class LongFlow(LatentVariable):
+    def __init__(self, n_flows=30):
+        self.n = 2
+        self.d = 10
+        self.q = 2
+        self.flow_len = self.n * self.q
+        super().__init__(self.n, self.q)
+
+        self.flows = [IAF(self.flow_len, self.flow_len) for _ in range(n_flows)]
+        for i in range(n_flows): self.add_module(f'iaf{i}', self.flows[i])
+
+        self.prior_x = NormalPrior(torch.zeros(1, self.flow_len), torch.ones(1, self.flow_len))
+
+        self.mu_and_h = torch.nn.Parameter(torch.zeros(1, self.flow_len * 2))
+        self.log_sigma = torch.nn.Parameter(torch.zeros(1, self.flow_len))
+
+        self.register_added_loss_term("x_kl")
+        self.register_added_loss_term("x_det_jacobian")
+    
+    def get_latent_flow_samples(self):    
+        mu, h = self.mu_and_h[:, :-self.flow_len], self.mu_and_h[:, -self.flow_len:]
+        sg = self.log_sigma.exp()
+        q_x = torch.distributions.Normal(mu, sg)
+        flow_samples = q_x.rsample(sample_shape=torch.Size([500])) # shape 500 x N x Q 
+        
+        for flow in self.flows:
+           flow_samples = flow.forward(flow_samples, h)
+         
+        return flow_samples
+
+    def forward(self):
+        mu, h = self.mu_and_h[:, :-self.flow_len], self.mu_and_h[:, -self.flow_len:]
+        sg = self.log_sigma.exp()
+
+        q_x = torch.distributions.Normal(mu, sg)
+        sample = q_x.rsample()
+
+        for flow in self.flows:
+            sample = flow.forward(sample, h)
+
+        x_kl = kl_gaussian_loss_term(q_x, self.prior_x, 1, self.d)        
+        sum_log_det_jac = flow_det_loss_term(self.flows, 1, self.d)
+
+        self.update_added_loss_term('x_kl', x_kl)
+        self.update_added_loss_term('x_det_jacobian', sum_log_det_jac)
+        
+        return sample[0].reshape(self.n, self.q)
+
 class GPLVM(BayesianGPLVM):
-    def __init__(self, n, data_dim, latent_dim, n_inducing, nn_layers=None, context_size=2, n_flows=10):
-        self.n = n
-        self.batch_shape = torch.Size([data_dim])
-        self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
+    def __init__(self, n_inducing=2, n_flows=30):
+        self.n = 2
+        self.d = 10
+        self.q = 2
+        self.inducing_inputs = torch.randn(d, n_inducing, q)
 
-        q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=self.batch_shape) 
+        q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=torch.Size([self.d]))
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
-
-        X_prior_mean = torch.zeros(n, latent_dim)
-
-        prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        X = IAFEncoder(n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
+        X = LongFlow(n_flows)
 
         super(GPLVM, self).__init__(X, q_f)
 
-        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        self.covar_module = LinearKernel(ard_num_dims=latent_dim)
+        self.mean_module = ConstantMean(ard_num_dims=q)
+        self.covar_module = LinearKernel(ard_num_dims=q)
 
     def forward(self, X):
         mean_x = self.mean_module(X)
@@ -45,31 +90,22 @@ class GPLVM(BayesianGPLVM):
         dist = MultivariateNormal(mean_x, covar_x)
         return dist
 
-    def _get_batch_idx(self, batch_size):        
-        valid_indices = np.arange(self.n)
-        batch_indices = np.random.choice(valid_indices, size=batch_size, replace=False)
-        return np.sort(batch_indices)
-
-def train(model, likelihood, Y, steps=1000, batch_size=100):
+def train(model, likelihood, Y, steps=1000):
 
     elbo = VariationalELBO(likelihood, model, num_data=len(Y))
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.001)
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.01)
 
     losses = []
     iterator = trange(steps)
     for i in iterator: 
-        batch_index = model._get_batch_idx(batch_size)
         optimizer.zero_grad()
         loss= 0.0
         for _ in range(5):
-            sample = model.sample_latent_variable(Y)
-            sample_batch = sample[batch_index]
-            output_batch = model(sample_batch)
-            loss += -elbo(output_batch, Y[batch_index].T).sum()/5
+            sample = model.sample_latent_variable()
+            output = model(sample)
+            loss += -elbo(output, Y.T).sum()/5
         losses.append(loss.item())
-        iterator.set_description(
-            '-elbo: ' + str(np.round(loss.item(), 2)) +\
-            ". Step: " + str(i))
+        iterator.set_description('-elbo: ' + str(np.round(loss.item(), 2)) + ". Step: " + str(i))
         loss.backward()
         optimizer.step()
 
@@ -86,6 +122,6 @@ if __name__ == '__main__':
     W = np.random.normal(size = (q, d))
     Y = torch.tensor(X @ W).float()
 
-    model = GPLVM(n, d, q, n_inducing=2, n_flows=30, nn_layers=(4, 4))
-    likelihood = GaussianLikelihood(batch_shape=model.batch_shape)
-    losses = train(model, likelihood, Y, steps=10000, batch_size=n)
+    model = GPLVM()
+    likelihood = GaussianLikelihood(batch_shape=[model.d])
+    losses = train(model, likelihood, Y, steps=10000)
