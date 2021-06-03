@@ -168,14 +168,14 @@ if __name__ == '__main__':
     Y = torch.tensor(Y, device=device)
     losses = train(model, likelihood, Y, steps=20000, batch_size=200)
 
-    # if os.path.isfile('for_paper/mocap_cpu.pkl'):
-    #     with open('for_paper/mocap_cpu.pkl', 'rb') as file:
-    #         model_sd, likl_sd = pkl.load(file)
-    #         model.load_state_dict(model_sd)
-    #         likelihood.load_state_dict(likl_sd)
+    if os.path.isfile('for_paper/mocap_cpu_diff_motions.pkl'):
+        with open('for_paper/mocap_cpu_diff_motions.pkl', 'rb') as file:
+            model_sd, likl_sd = pkl.load(file)
+            model.load_state_dict(model_sd)
+            likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/mocap_cpu_diff_motions.pkl', 'wb') as file:
-       pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
+    # with open('for_paper/mocap_cpu_diff_motions.pkl', 'wb') as file:
+    #    pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 
@@ -199,17 +199,16 @@ if __name__ == '__main__':
     # plt.title('Data without missing values')
 
     plt.ioff()
-    for i in range(n):
-        plot_skeleton(plt.figure(), 111, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
-        plt.title('Training Data')
-        plt.savefig('img/data_' + str(i) + '.png')
-        plt.close()
-
-        plot_skeleton(plt.figure(), 111, Y_recon[i, :])
-        plt.title('Reconstruction Walking')
-        plt.savefig('img/recons_' + str(i) + '.png')
+    for i in range(500):
+        fig = plt.figure(figsize=(8,3))
+        plot_skeleton(fig, 132, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
+        plt.title('Training Data: ' + str(lb[i]))
+        plot_skeleton(fig, 133, Y_recon[i, :])
+        plt.title('Reconstruction: ' + str(lb[i]))
+        plot_skeleton(fig, 131, Y_full[i, :])
+        plt.title('Ground Truth: ' + str(lb[i]))
+        plt.savefig('img/' + f'{i:03d}' + '.png')
         plt.close()
 
     # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
-    # convert -delay 10 -loop 0 data_*.png data.gif && rm data_*.png
-    # convert -delay 10 -loop 0 recons_*.png recons.gif && rm recons_*.png
+    # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
