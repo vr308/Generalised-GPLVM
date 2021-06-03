@@ -449,9 +449,8 @@ class VariationalLatentVariable(LatentVariable):
 
         q_x = torch.distributions.Normal(q_mu_batch, q_log_sigma_batch.exp())
 
-        prior_x = self.prior_x
-        prior_x.loc = prior_x.loc[:len(batch_idx), ...]
-        prior_x.scale = prior_x.scale[:len(batch_idx), ...]
+        self.prior_x.loc = self.prior_x.loc[:len(batch_idx), ...]
+        self.prior_x.scale = self.prior_x.scale[:len(batch_idx), ...]
         x_kl = kl_gaussian_loss_term(q_x, self.prior_x, len(batch_idx), self.data_dim)        
         self.update_added_loss_term('x_kl', x_kl)
         return q_x.rsample()

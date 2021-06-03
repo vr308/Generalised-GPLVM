@@ -8,7 +8,7 @@ plt.ion(); plt.style.use('ggplot')
 import pickle as pkl
 from utils.data import load_real_data
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalIAF
+from models.latent_variable import VariationalLatentVariable
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from utils.visualisation import plot_y_reconstruction
 
@@ -21,8 +21,12 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 
+def _init_pca(Y, latent_dim):
+    U, S, V = torch.pca_lowrank(Y, q = latent_dim)
+    return torch.matmul(Y, V[:,:latent_dim])
+
 class GPLVM(BayesianGPLVM):
-    def __init__(self, n, data_dim, latent_dim, n_inducing, context_size=2, n_flows=10):
+    def __init__(self, n, data_dim, latent_dim, n_inducing, X_init):
         self.n = n
         self.batch_shape = torch.Size([data_dim])
         self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
@@ -32,8 +36,8 @@ class GPLVM(BayesianGPLVM):
 
         X_prior_mean = torch.zeros(n, latent_dim)
 
-        prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        X = VariationalIAF(n, latent_dim, context_size, prior_x, data_dim, n_flows)
+        prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+        X = VariationalLatentVariable(X_init, prior_x, data_dim)
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -54,7 +58,7 @@ class GPLVM(BayesianGPLVM):
 def train(model, likelihood, Y, steps=1000, batch_size=100):
 
     elbo = VariationalELBO(likelihood, model, num_data=len(Y))
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.01)
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.005)
 
     losses = []
     iterator = trange(steps)
@@ -78,19 +82,19 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     n, d, q, X, Y, lb = load_real_data('mnist')
-    q = 5; Y /= 255
-    Y = Y[:10000]; n = len(Y)
+    q = 6; Y /= 255
+    Y = Y[:5000]; n = len(Y)
 
     # remove some obs from Y
-    Y_full = Y.clone()
-    idx_a = np.random.choice(range(n), n * d)
-    idx_b = np.random.choice(range(d), n * d)
-    Y[idx_a, idx_b] = np.nan
+    # Y_full = Y.clone()
+    # idx_a = np.random.choice(range(n), n * d)
+    # idx_b = np.random.choice(range(d), n * d)
+    # Y[idx_a, idx_b] = np.nan
     # (Y.isnan().sum(axis=1) == d).any() # False hopefully
 
     # plt.imshow(Y[0].reshape(28, 28))
 
-    model = GPLVM(n, d, q, n_inducing=120, n_flows=0)
+    model = GPLVM(n, d, q, n_inducing=120, X_init=_init_pca(Y, q))
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -101,20 +105,19 @@ if __name__ == '__main__':
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    model.X.jitter = model.X.jitter.to(device=device)
-    losses = train(model, likelihood, Y, steps=10000, batch_size=450)
+    losses = train(model, likelihood, Y, steps=15000, batch_size=300)
 
-    if os.path.isfile('for_paper/mnist_full.pkl'):
-        with open('for_paper/mnist_full.pkl', 'rb') as file:
-            model_sd, likl_sd = pkl.load(file)
-            model.load_state_dict(model_sd)
-            likelihood.load_state_dict(likl_sd)
+    # if os.path.isfile('for_paper/mnist_full.pkl'):
+    #     with open('for_paper/mnist_full.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
 
     with open('for_paper/mnist_full.pkl', 'wb') as file:
-        pkl.dump((model.state_dict(), likelihood.state_dict()), file)
+        pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
-    samples = model.X.get_latent_flow_means().detach().cpu()
-    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb[:10000])
+    samples = model.X.q_mu.detach().cpu()
+    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb[:5000])
 
     plt.style.use('seaborn-deep')
     fig, axs = plt.subplots(3, 7)
@@ -123,7 +126,7 @@ if __name__ == '__main__':
     for i in range(3):
         for j in range(7):
             k += 1
-            axs[i, j].imshow(model(samples[[k], :].cuda()).loc[:, 0].detach().reshape(28, 28).cpu())
+            axs[i, j].imshow(model(samples[[k], :]).loc[:, 0].detach().reshape(28, 28))
             axs[i, j].axis('off')
 
     plt.style.use('seaborn-deep')
