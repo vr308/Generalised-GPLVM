@@ -127,21 +127,21 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     motions = [f'{i:02d}' for i in range(1, 17)]
-    data = pods.datasets.cmu_mocap('35', motions)
+    data = pods.datasets.cmu_mocap('16', motions)
     data['Y'][:, 0:3] = 0.0
 
     Y = torch.tensor(data['Y']).float()
-    n = len(Y); d = len(Y.T); q = 4
+    n = len(Y); d = len(Y.T); q = 6
     lb = np.where(data['lbls'])[1]
 
     # [f'{i}. ' + vertex.name for i, vertex in enumerate(data['skel'].vertices)]
-    # plot_skeleton(Y[0, :], {1}, True)
-    # plot_skeleton(Y[0, :], {17}, True)
-    # plot_skeleton(Y[0, :], {1, 24}, True)
-    # plot_skeleton(Y[0, :], {1, 14, 18}, True) # missing head, right leg and forearm
-    # plot_skeleton(Y[0, :], {6, 25, 18}, True) # missing forearms, left leg
-    # plot_skeleton(Y[0, :], {12}, True) # missing upper body
-    # plot_skeleton(Y[0, :], {1, 6}, True) # missing lower body
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {1}, True)
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {17}, True)
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {1, 24}, True)
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {1, 14, 18}, True) # missing head, right leg and forearm
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {6, 25, 18}, True) # missing forearms, left leg
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {12}, True) # missing upper body
+    # plot_skeleton(plt.figure(), 111, Y[0, :], {1, 6}, True) # missing lower body
 
     Y_full = Y.clone()
 
@@ -166,18 +166,16 @@ if __name__ == '__main__':
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=2, batch_size=200)
+    losses = train(model, likelihood, Y, steps=20000, batch_size=200)
 
-    if os.path.isfile('for_paper/mocap_cpu.pkl'):
-        with open('for_paper/mocap_cpu.pkl', 'rb') as file:
-            #from IPython.core.debugger import set_trace
-            #set_trace()
-            model_sd, likl_sd = pkl.load(file)
-            model.load_state_dict(model_sd)
-            likelihood.load_state_dict(likl_sd)
+    # if os.path.isfile('for_paper/mocap_cpu.pkl'):
+    #     with open('for_paper/mocap_cpu.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
 
-    #with open('for_paper/mocap_cpu.pkl', 'wb') as file:
-    #    pkl.dump((model.state_dict(), likelihood.state_dict()), file)
+    with open('for_paper/mocap_cpu_diff_motions.pkl', 'wb') as file:
+       pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 
@@ -200,15 +198,18 @@ if __name__ == '__main__':
     # plot_skeleton(Y_full[205, :])
     # plt.title('Data without missing values')
 
+    plt.ioff()
+    for i in range(n):
+        plot_skeleton(plt.figure(), 111, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
+        plt.title('Training Data')
+        plt.savefig('img/data_' + str(i) + '.png')
+        plt.close()
 
-    # plt.ioff()
-    # for i in range(192, 299):
-    #     plot_skeleton(Y_full[i, :], {12}, True)
-    #     plt.title('Training Data')
-    #     plt.savefig('img/data_' + str(i) + '.png')
-    #     plt.close()
+        plot_skeleton(plt.figure(), 111, Y_recon[i, :])
+        plt.title('Reconstruction Walking')
+        plt.savefig('img/recons_' + str(i) + '.png')
+        plt.close()
 
-    #     plot_skeleton(Y_recon[i, :])
-    #     plt.title('Reconstruction Walking')
-    #     plt.savefig('img/recons_' + str(i) + '.png')
-    #     plt.close()
+    # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
+    # convert -delay 10 -loop 0 data_*.png data.gif && rm data_*.png
+    # convert -delay 10 -loop 0 recons_*.png recons.gif && rm recons_*.png
