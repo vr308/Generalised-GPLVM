@@ -26,7 +26,7 @@ class GPLVM(BayesianGPLVM):
         self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
 
         q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=self.batch_shape) 
-        q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
+        q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=False)
 
         X_prior_mean = torch.zeros(n, latent_dim)
         prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
@@ -94,15 +94,15 @@ def get_y_dims_to_nullify(missing_verts):
     indices.remove(-1)
     return indices
 
-def plot_skeleton(Y_vec, missing_verts=set(), recursive=False):
+def plot_skeleton(fig, subplot_index, Y_vec, missing_verts=set(), recursive=False):
 
     missing_verts = get_all_missing_verts(missing_verts, recursive)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
+    ax = fig.add_subplot(subplot_index, projection='3d')
 
     Z = data['skel'].to_xyz(Y_vec)
-    ax.scatter(Z[:, 0], Z[:, 2], Z[:, 1], marker='.', color='b')
+    idx_to_show = ~np.isin(np.arange(len(Z)), list(missing_verts))
+    ax.scatter(Z[idx_to_show, 0], Z[idx_to_show, 2], Z[idx_to_show, 1], marker='.', color='b')
 
     connect = data['skel'].connection_matrix() # Get the connectivity matrix.
     I, J = np.nonzero(connect)
@@ -118,36 +118,44 @@ def plot_skeleton(Y_vec, missing_verts=set(), recursive=False):
     ax.set_xlim(-15, 15)
     ax.set_ylim(-15, 15)
     ax.set_zlim(-15, 15)
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_zticks([])
 
 if __name__ == '__main__':
 
     torch.manual_seed(42)
 
-    data = pods.datasets.cmu_mocap('05', ['01', '11'])
+    motions = [f'{i:02d}' for i in range(1, 17)]
+    data = pods.datasets.cmu_mocap('35', motions)
     data['Y'][:, 0:3] = 0.0
 
     Y = torch.tensor(data['Y']).float()
-    n = len(Y); d = len(Y.T); q = 3
+    n = len(Y); d = len(Y.T); q = 4
     lb = np.where(data['lbls'])[1]
 
-    # [vertex.name for vertex in data['skel'].vertices]
+    # [f'{i}. ' + vertex.name for i, vertex in enumerate(data['skel'].vertices)]
     # plot_skeleton(Y[0, :], {1}, True)
     # plot_skeleton(Y[0, :], {17}, True)
+    # plot_skeleton(Y[0, :], {1, 24}, True)
+    # plot_skeleton(Y[0, :], {1, 14, 18}, True) # missing head, right leg and forearm
+    # plot_skeleton(Y[0, :], {6, 25, 18}, True) # missing forearms, left leg
+    # plot_skeleton(Y[0, :], {12}, True) # missing upper body
+    # plot_skeleton(Y[0, :], {1, 6}, True) # missing lower body
 
     Y_full = Y.clone()
 
-    leg_idx = list(get_y_dims_to_nullify(get_all_missing_verts({1}, True)))
-    for idx in leg_idx:
-        Y[lb == 0, idx] = np.nan
+    sets_for_removal = [{1, 14, 18}, {6, 25, 18}, {12}, {1, 6}]
 
-    hand_idx = list(get_y_dims_to_nullify(get_all_missing_verts({17}, True)))
-    for idx in hand_idx:
-        Y[lb == 1, idx] = np.nan
+    for i, set_to_rm in enumerate(sets_for_removal):
+        remove_idx = list(get_y_dims_to_nullify(get_all_missing_verts(set_to_rm, True)))
+        for idx in remove_idx:
+            Y[(lb+1) % 4 == i, idx] = np.nan
 
     Y[:, :3] = 0.0
     # plt.imshow(Y)
 
-    model = GPLVM(n, d, q, n_inducing=90)
+    model = GPLVM(n, d, q, n_inducing=100)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -158,37 +166,49 @@ if __name__ == '__main__':
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=40000, batch_size=n)
+    losses = train(model, likelihood, Y, steps=2, batch_size=200)
 
-    # if os.path.isfile('for_paper/mocap.pkl'):
-    #     with open('for_paper/mocap.pkl', 'rb') as file:
-    #         model_sd, likl_sd = pkl.load(file)
-    #         model.load_state_dict(model_sd)
-    #         likelihood.load_state_dict(likl_sd)
+    if os.path.isfile('for_paper/mocap_cpu.pkl'):
+        with open('for_paper/mocap_cpu.pkl', 'rb') as file:
+            #from IPython.core.debugger import set_trace
+            #set_trace()
+            model_sd, likl_sd = pkl.load(file)
+            model.load_state_dict(model_sd)
+            likelihood.load_state_dict(likl_sd)
 
-    with open('for_paper/mocap.pkl', 'wb') as file:
-        pkl.dump((model.state_dict(), likelihood.state_dict()), file)
+    #with open('for_paper/mocap_cpu.pkl', 'wb') as file:
+    #    pkl.dump((model.state_dict(), likelihood.state_dict()), file)
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 
-    plot_skeleton(Y_full[0, :])
-    plt.title('Ground Truth Walking')
+    fig = plt.figure(figsize=(8,3))
+    plot_skeleton(fig, 132, Y_full[0, :], {1, 14, 18}, True)    
+    plt.title('Train', fontsize='small')
 
-    plot_skeleton(Y_full[0, :], {1}, True)
-    plt.title('Data Walking')
+    plot_skeleton(fig, 133, Y_recon[0, :])
+    plt.title('Reconstruction', fontsize='small')
 
-    plot_skeleton(Y_recon[0, :])
-    plt.title('Reconstruction Walking')
+    plot_skeleton(fig, 131, Y_full[0, :])
+    plt.title('Ground Truth', fontsize='small')
 
-    plot_skeleton(Y_full[150, :])
-    plt.title('Ground Truth Dancing')
+    # plot_skeleton(Y_full[205, :], {12}, True)    
+    # plt.title('Training Data')
 
-    plot_skeleton(Y_full[150, :], {1}, True)
-    plt.title('Data Dancing')
+    # plot_skeleton(Y_recon[205, :])
+    # plt.title('Model Reconstruction')
 
-    plot_skeleton(Y_recon[150, :])
-    plt.title('Reconstruction Dancing')
+    # plot_skeleton(Y_full[205, :])
+    # plt.title('Data without missing values')
 
-    for i in range(n):
-        plot_skeleton(Y_recon[i, :])
-        plt.savefig(str(i) + '.png')
+
+    # plt.ioff()
+    # for i in range(192, 299):
+    #     plot_skeleton(Y_full[i, :], {12}, True)
+    #     plt.title('Training Data')
+    #     plt.savefig('img/data_' + str(i) + '.png')
+    #     plt.close()
+
+    #     plot_skeleton(Y_recon[i, :])
+    #     plt.title('Reconstruction Walking')
+    #     plt.savefig('img/recons_' + str(i) + '.png')
+    #     plt.close()
