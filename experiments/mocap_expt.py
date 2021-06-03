@@ -126,7 +126,8 @@ if __name__ == '__main__':
 
     torch.manual_seed(42)
 
-    motions = [f'{i:02d}' for i in range(1, 17)]
+    # motions = [f'{i:02d}' for i in range(1, 17)]
+    motions = ['01', '02', '15', '16', '35', '36'] # jump x2, walk x2, run x2
     data = pods.datasets.cmu_mocap('16', motions)
     data['Y'][:, 0:3] = 0.0
 
@@ -199,7 +200,7 @@ if __name__ == '__main__':
     # plt.title('Data without missing values')
 
     plt.ioff()
-    for i in range(500):
+    for i in range(n):
         fig = plt.figure(figsize=(8,3))
         plot_skeleton(fig, 132, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
         plt.title('Training Data: ' + str(lb[i]))
@@ -212,3 +213,12 @@ if __name__ == '__main__':
 
     # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
     # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
+
+    Y_test = torch.tensor(pods.datasets.cmu_mocap('16', ['57'])['Y']).float() # run and stop
+    Y_test[:, 0:3] = 0.0
+    n_test = len(Y_test)
+
+    losses_test, X_test = model.cpu().predict_latent(Y.cpu(), Y_test,
+        lr=0.01, likelihood=likelihood.cpu(), seed=42,
+        prior_x=NormalPrior(torch.zeros(n_test, q), torch.ones(n_test, q)),
+        ae=False, model_name='gauss', pca=True, steps=20000)
