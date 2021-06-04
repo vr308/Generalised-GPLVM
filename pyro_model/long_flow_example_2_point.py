@@ -42,14 +42,14 @@ if __name__ == '__main__':
     # Create Synthetic Data
 
     np.random.seed(42)
-    n = 100; q = 2; m = 10
+    n = 2; q = 2; m = 10
 
     X = np.random.normal(size = (n, q))
     W = np.random.normal(size = (q, m))
     Y = torch.tensor(X @ W).float()
 
     set_rng_seed(42)
-    std = torch.zeros(75, n*q).normal_().float()
+    std = torch.zeros(750, n*q).normal_().float()
 
     def neg_elbo():
         base_samp = std*enc.sigma + enc.mu
@@ -61,13 +61,13 @@ if __name__ == '__main__':
         loc = torch.zeros(n)
         scale = flow_samp.reshape(-1, n, q)
         scale = torch.einsum('aij,akj->aik', scale, scale)
-        jitter = torch.eye(n)[None, ...].repeat([len(flow_samp), 1, 1])*1e-2
+        jitter = torch.eye(n)[None, ...].repeat([len(flow_samp), 1, 1])*1e-4
         log_p_given_x = torch.distributions.MultivariateNormal(
             loc, (scale + jitter).repeat_interleave(m, 0)).log_prob(Y.T.repeat([len(flow_samp), 1]))
 
         return -log_p_given_x.mean()*m - (log_p - log_q).mean()
 
-    set_rng_seed(420)
+    set_rng_seed(42)
 
     enc = Encoder()
 
@@ -92,8 +92,10 @@ if __name__ == '__main__':
             x = enc.flow_dist.sample_n(100)
             plt.ylim(-5, 5)
             plt.xlim(-5, 5)
-            plt.scatter(x[:, 0], x[:, 1], alpha=0.1)
-            plt.scatter(x[:, 2], x[:, 3], alpha=0.1)
+            plt.scatter(x[:, 0], x[:, 1], alpha=0.1, label='X[0, 0] vs X[0, 1]')
+            plt.scatter(x[:, 2], x[:, 3], alpha=0.1, label='X[1, 0] vs X[1, 1]')
+            plt.legend()
+            plt.title('GPLVM with Flows')
             plt.savefig(str(step) + '__' + str(int(loss.data)) + '.png')
             plt.clf()
             plt.close()
