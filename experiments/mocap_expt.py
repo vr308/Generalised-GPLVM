@@ -214,11 +214,30 @@ if __name__ == '__main__':
     # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
     # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
 
-    Y_test = torch.tensor(pods.datasets.cmu_mocap('16', ['57'])['Y']).float() # run and stop
-    Y_test[:, 0:3] = 0.0
+    Y_test_full = torch.tensor(pods.datasets.cmu_mocap('16', ['21'])['Y']).float() # run and stop
+    Y_test_full[:, 0:3] = 0.0
+    Y_test = Y_test_full.clone()
     n_test = len(Y_test)
 
+    remove_idx = list(get_y_dims_to_nullify(get_all_missing_verts({1, 14, 18}, True)))
+    Y_test[:, remove_idx] = np.nan
+
     losses_test, X_test = model.cpu().predict_latent(Y.cpu(), Y_test,
-        lr=0.01, likelihood=likelihood.cpu(), seed=42,
+        lr=0.005, likelihood=likelihood.cpu(), seed=1,
         prior_x=NormalPrior(torch.zeros(n_test, q), torch.ones(n_test, q)),
-        ae=False, model_name='gauss', pca=True, steps=20000)
+        ae=False, model_name='gauss', pca=False, steps=15000)
+
+    Y_test_recon = model(X_test.q_mu).loc.T.detach().cpu()
+    np.save('y_test_recon.npy', Y_test_recon)
+
+    plt.ioff()
+    for i in range(n_test):
+        fig = plt.figure(figsize=(8,3))
+        plot_skeleton(fig, 132, Y_test_full[i, :], {1, 14, 18}, True)
+        plt.title('Test Data: ' + str(lb[i]))
+        plot_skeleton(fig, 133, Y_test_recon[i, :])
+        plt.title('Reconstruction: ' + str(lb[i]))
+        plot_skeleton(fig, 131, Y_test_full[i, :])
+        plt.title('Ground Truth: ' + str(lb[i]))
+        plt.savefig('img/' + f'{i:03d}' + '.png')
+        plt.close()

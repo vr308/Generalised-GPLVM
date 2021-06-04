@@ -76,7 +76,7 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(params, lr=0.001)
 
-    steps = 60001; losses = np.zeros(steps)
+    steps = 20001; losses = np.zeros(steps)
     bar = trange(steps, leave=False)
     for step in bar:
         enc.update()
@@ -89,7 +89,7 @@ if __name__ == '__main__':
         bar.set_description(str(losses[step]))
 
         if step % 1000 == 0:
-            x = enc.flow_dist.sample_n(100)
+            x = enc.flow_dist.sample_n(1000)
             plt.ylim(-5, 5)
             plt.xlim(-5, 5)
             plt.scatter(x[:, 0], x[:, 1], alpha=0.1, label='X[0, 0] vs X[0, 1]')
