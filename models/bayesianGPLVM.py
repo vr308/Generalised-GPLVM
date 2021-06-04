@@ -53,7 +53,11 @@ class BayesianGPLVM(ApproximateGP):
         else:
             test_model = deepcopy(self) # A says better to re-initialise
         # self is in eval mode - but test_model needs to be in train_mode
-        test_model.train()
+        if torch.cuda.is_available():
+            test_model = test_model.cuda()
+            test_model.train()
+        else:
+            test_model.train()
         test_model.n = len(Y_test)
         latent_dim = self.X.latent_dim #q
         
@@ -120,8 +124,12 @@ class BayesianGPLVM(ApproximateGP):
                 optimizer.zero_grad()
                 sample = test_model.sample_latent_variable()  # a full sample returns latent x across all N
                 sample_batch = sample[batch_index]
+                sample_batch = sample_batch.cuda() if torch.cuda.is_available() else sample_batch
+                sample_batch.requires_grad_(True)
+                
                 output_batch = test_model(sample_batch)
                 loss = -elbo(output_batch, Y_test[batch_index].T).sum()
+                loss.requires_grad_(True)
                 loss_list.append(loss.item())
                 iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
                 loss.backward()
@@ -170,15 +178,15 @@ class BayesianGPLVM(ApproximateGP):
          
          if self.X.__class__.__name__ in ('PointLatentVariable', 'MAPLatentVariable'):
              
-             return self.X.X.detach().numpy()
+             return self.X.X.detach()
          
          elif self.X.__class__.__name__ == 'VariationalLatentVariable':
              
-             return self.X.q_mu.detach().numpy()
+             return self.X.q_mu.detach()
          
          elif self.X.__class__.__name__ == 'NNEncoder':
              
-             return self.X.mu(Y).detach().numpy()
+             return self.X.mu(Y).detach()
     
     def get_X_scales(self, Y):
      
@@ -188,11 +196,11 @@ class BayesianGPLVM(ApproximateGP):
          
          elif self.X.__class__.__name__ == 'VariationalLatentVariable':
              
-             return torch.nn.functional.softplus(self.X.q_log_sigma).detach().numpy()
+             return torch.nn.functional.softplus(self.X.q_log_sigma).detach()
          
          elif self.X.__class__.__name__ == 'NNEncoder':
              
-             return np.array([torch.sqrt(x.diag()).numpy() for x in self.X.sigma(Y).detach()])
+             return np.array([torch.sqrt(x.diag()) for x in self.X.sigma(Y).detach()])
          
     def store(self, losses, likelihood):
         
