@@ -156,7 +156,7 @@ if __name__ == '__main__':
     Y[:, :3] = 0.0
     # plt.imshow(Y)
 
-    model = GPLVM(n, d, q, n_inducing=100)
+    model = GPLVM(n, d, q, n_inducing=30)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
     if torch.cuda.is_available():
@@ -167,7 +167,7 @@ if __name__ == '__main__':
         device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=20000, batch_size=200)
+    losses = train(model, likelihood, Y, steps=15000, batch_size=200)
 
     if os.path.isfile('for_paper/mocap_cpu_diff_motions.pkl'):
         with open('for_paper/mocap_cpu_diff_motions.pkl', 'rb') as file:
@@ -214,7 +214,7 @@ if __name__ == '__main__':
     # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
     # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
 
-    Y_test_full = torch.tensor(pods.datasets.cmu_mocap('16', ['21'])['Y']).float() # run and stop
+    Y_test_full = torch.tensor(pods.datasets.cmu_mocap('16', ['21', '45', '03'])['Y']).float() # walk, run, high jump
     Y_test_full[:, 0:3] = 0.0
     Y_test = Y_test_full.clone()
     n_test = len(Y_test)
@@ -225,7 +225,7 @@ if __name__ == '__main__':
     losses_test, X_test = model.cpu().predict_latent(Y.cpu(), Y_test,
         lr=0.005, likelihood=likelihood.cpu(), seed=1,
         prior_x=NormalPrior(torch.zeros(n_test, q), torch.ones(n_test, q)),
-        ae=False, model_name='gauss', pca=False, steps=15000)
+        ae=False, model_name='gauss', pca=False, steps=40000)
 
     Y_test_recon = model(X_test.q_mu).loc.T.detach().cpu()
     np.save('y_test_recon.npy', Y_test_recon)
@@ -234,10 +234,10 @@ if __name__ == '__main__':
     for i in range(n_test):
         fig = plt.figure(figsize=(8,3))
         plot_skeleton(fig, 132, Y_test_full[i, :], {1, 14, 18}, True)
-        plt.title('Test Data: ' + str(lb[i]))
+        plt.title('Test Data')
         plot_skeleton(fig, 133, Y_test_recon[i, :])
-        plt.title('Reconstruction: ' + str(lb[i]))
+        plt.title('Reconstruction')
         plot_skeleton(fig, 131, Y_test_full[i, :])
-        plt.title('Ground Truth: ' + str(lb[i]))
+        plt.title('Ground Truth')
         plt.savefig('img/' + f'{i:03d}' + '.png')
         plt.close()
