@@ -5,7 +5,7 @@ Script for experiments with MovieLens100K / MovieLens1m
 
 5 different inference modes:
     
-   models = ['point','map','gaussian','pointnet_gaussian','pointnet_iaf']
+   models = ['gaussian']
 
 """
 
@@ -45,8 +45,8 @@ class MovieLensModel(BayesianGPLVM):
         super(MovieLensModel, self).__init__(X, q_f)
         
         # Kernel 
-        #self.mean_module = ConstantMean(ard_num_dims=latent_dim)
-        self.mean_module = ZeroMean()
+        self.mean_module = ConstantMean(ard_num_dims=latent_dim)
+        #self.mean_module = ZeroMean()
         self.covar_module = ScaleKernel(RBFKernel(ard_num_dims=latent_dim))
 
      def forward(self, X):
@@ -63,6 +63,8 @@ class MovieLensModel(BayesianGPLVM):
      
 if __name__ == '__main__':
     
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     model_dict = {}
     noise_trace_dict = {}
     
@@ -74,19 +76,19 @@ if __name__ == '__main__':
 
     # Load some data
     
-    N, d, q, X, Y, labels = load_real_data('movie_lens')
+    N, d, q, X, Y, labels = load_real_data('movie_lens_100k')
     
     Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
     #lb_train, lb_test = train_test_split(labels, test_size=100, random_state=SEED)
     
-    Y_train = torch.Tensor(Y_train)
-    Y_test = torch.Tensor(Y_test)
+    Y_train = torch.Tensor(Y_train).cuda()
+    Y_test = torch.Tensor(Y_test).cuda()
       
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 11
-    n_inducing = 32
+    latent_dim = 15
+    n_inducing = 34
     pca = False
     
     # Run all 4 models and store results
@@ -96,11 +98,7 @@ if __name__ == '__main__':
     X_prior_mean_test = X_prior_mean[0:len(Y_test),:]
 
     X_init = torch.nn.Parameter(torch.zeros(N, latent_dim))
-    
-    # Each inference model differs in its latent variable configuration / 
-    # LatentVariable (X)
-    
-    # defaults - if a model needs them they are internally assigned
+      
     nn_layers = None
     model_name = 'gauss'
       
@@ -113,7 +111,10 @@ if __name__ == '__main__':
     
     model = MovieLensModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
     likelihood = GaussianLikelihoodWithMissingObs()
-    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.7)
+    
+    model = model.cuda()
+    likelihood = likelihood.cuda()
+    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.9)
 
     optimizer = torch.optim.Adam([
     {'params': model.parameters()},
@@ -130,7 +131,7 @@ if __name__ == '__main__':
     loss_list = []
     noise_trace = []
     
-    iterator = trange(15000, leave=True)
+    iterator = trange(8000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
@@ -145,10 +146,10 @@ if __name__ == '__main__':
         optimizer.step()
     model.store(loss_list, likelihood)
     
-    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
-       with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
-           model_sd = pkl.load(file)
-           model.load_state_dict(model_sd)
+    # if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
+    #    with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
+    #        model_sd = pkl.load(file)
+    #        model.load_state_dict(model_sd)
         
     # Save models & training info
     
@@ -158,15 +159,13 @@ if __name__ == '__main__':
             
     X_train_mean = model.get_X_mean(Y_train)
     X_train_scales = model.get_X_scales(Y_train)
-    
-    #plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'movie_lens_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
-    
+        
     #### Saving model with seed 
-    print(f'Saving {model_name} {SEED}')
+    #print(f'Saving {model_name} {SEED}')
     
-    filename = f'movie_lens100k_{model_name}_{SEED}.pkl'
-    with open(f'pre_trained_models/{filename}', 'wb') as file:
-        pkl.dump(model.state_dict(), file)
+    #filename = f'movie_lens100k_{model_name}_{SEED}.pkl'
+    #with open(f'pre_trained_models/{filename}', 'wb') as file:
+    #    pkl.dump(model.state_dict(), file)
 
     ####################### Testing Framework ################################################
     if TEST:
@@ -175,12 +174,12 @@ if __name__ == '__main__':
             model.eval()
             likelihood.eval()
         
-        losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
+            losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
                                   likelihood, SEED, prior_x=prior_x_test, ae=ae, 
                                   model_name=model_name,pca=pca, steps=7000)
             
-        X_test_mean = X_test.q_mu.detach().numpy()
-        Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
+        X_test_mean = X_test.q_mu.detach().cuda()
+        Y_test_recon, Y_test_pred_covar = model.reconstruct_y(X_test_mean, Y_test, ae=ae, model_name=model_name)
         #Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
         
         # ################################
@@ -190,7 +189,7 @@ if __name__ == '__main__':
         # 1) Reconstruction error - Train & Test
         
         #mse_train = rmse_missing(Y_train, Y_train_recon.T)
-        mse_test = rmse_missing(Y_test, Y_test_recon.T.detach())
+        mse_test = rmse_missing(Y_test.cpu(), Y_test_recon.T.detach().cpu())
         
         #print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
         print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
