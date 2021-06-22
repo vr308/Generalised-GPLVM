@@ -163,10 +163,6 @@ if __name__ == '__main__':
     #### Saving model with seed 
     #print(f'Saving {model_name} {SEED}')
     
-    #filename = f'movie_lens100k_{model_name}_{SEED}.pkl'
-    #with open(f'pre_trained_models/{filename}', 'wb') as file:
-    #    pkl.dump(model.state_dict(), file)
-
     ####################### Testing Framework ################################################
     if TEST:
     #Compute latent test & reconstructions
@@ -194,12 +190,3 @@ if __name__ == '__main__':
         #print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
         print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
         
-        # # 2) Negative Test log-likelihood
-        # if model_name in ('point', 'map', 'gauss'):
-        #     nll = losses_test[-1]/len(Y_test)
-        # else:
-        #     with torch.no_grad():
-        #         Y_star = model(X_test_mean)
-        #         nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
-                
-        # print(f'Test NLL {model_name} = ' + str(nll))
