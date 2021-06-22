@@ -3,19 +3,16 @@
 """
 Script for experiments with qPCR data
 
-5 different inference modes:
+4 different inference modes:
     
-   models = ['point','map','gaussian','nn_gaussian'#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+   models = ['point','map','gaussian','nn_gaussian']
+
 """
-# TODO's:
-# Snaphot param state and save
-# Flexible variational family
 
 from utils.data import load_real_data 
 import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder, IAFEncoder
+from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -30,11 +27,8 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
 from sklearn.model_selection import train_test_split
+from utils.data import _init_pca
 plt.style.use('ggplot')
-
-def _init_pca(Y, latent_dim):
-    U, S, V = torch.pca_lowrank(Y, q = latent_dim)
-    return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
 class qPCRModel(BayesianGPLVM):
      def __init__(self, n, data_dim, latent_dim, n_inducing, X, nn_layers=None):
@@ -93,9 +87,9 @@ if __name__ == '__main__':
 model_dict = {}
 noise_trace_dict = {}
 
-for i in range(2):
+for j in range(1):
     
-    SEED = 7 + increment[i]
+    SEED = 7 + increment[j]
     torch.manual_seed(SEED)
 
     # Load some data
@@ -113,14 +107,13 @@ for i in range(2):
     N = len(Y_train)
     data_dim = Y_train.shape[1]
     latent_dim = 11
-    n_inducing = 32
+    n_inducing = 40
     pca = False
     
     # Run all 4 models and store results
     
-    models = ['nn_gauss']
-    #models = ['gauss']'nn_gauss'
-    steps = [40000]
+    models = ['point','map','gauss', 'nn_gauss']
+    steps = [20000,40000, 40000, 40000]
     steps_per_model = dict(zip(models, steps))
     
     for model_name in models:
@@ -178,7 +171,7 @@ for i in range(2):
         
         model = qPCRModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
         likelihood = GaussianLikelihood()
-        elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.6)
+        elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.55)
     
         optimizer = torch.optim.Adam([
         {'params': model.parameters()},
@@ -258,7 +251,7 @@ for i in range(2):
             else: # either point, map or gauss
                 losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
                                           likelihood, SEED, prior_x=prior_x_test, ae=ae, 
-                                          model_name=model_name,pca=pca)
+                                          model_name=model_name,pca=pca, steps=15000)
                     
             
             # Compute training and test reconstructions
@@ -282,15 +275,6 @@ for i in range(2):
             print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
             print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
             
-            # 2) Negative Test log-likelihood
-            if model_name in ('point', 'map', 'gauss'):
-                nll = losses_test[-1]/len(Y_test)
-            else:
-                with torch.no_grad():
-                    Y_star = model(X_test_mean)
-                    nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
-                    
-            print(f'Test NLL {model_name} = ' + str(nll))
     
  
   
