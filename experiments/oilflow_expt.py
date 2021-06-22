@@ -3,20 +3,16 @@
 """
 Script for experiments with oilflow data
 
-5 different inference modes:
+4 different inference modes:
     
-   models = ['point','map','gaussian','nn_gaussian','iaf']
+   models = ['point','map','gaussian','nn_gaussian']
 
 """
-
-# TODO's:
-# Snaphot param state and save
-# Flexible variational family
 
 from utils.data import load_real_data 
 import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder, IAFEncoder
+from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalLatentVariable, NNEncoder
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -43,7 +39,7 @@ class OilFlowModel(BayesianGPLVM):
         self.batch_shape = torch.Size([data_dim])
         
         # Locations Z corresponding to u_{d}, they can be randomly initialized or 
-        # regularly placed with shape (D x n_inducing x latent_dim).
+        # regularly placed with shape (n_inducing x latent_dim).
         self.inducing_inputs = torch.randn(n_inducing, latent_dim)
     
         # Sparse Variational Formulation
@@ -95,15 +91,14 @@ for _ in range(1):
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 10
+    latent_dim = 12
     n_inducing = 25
     pca = False
     
     # Run all 4 models and store results
     
-    models = ['point','map','gauss']
-    #models = ['gauss']'nn_gauss'
-    steps = [60000, 60000, 60000]
+    models = ['point','map','gauss', 'nn_gauss']
+    steps = [60000, 60000, 60000, 60000]
     steps_per_model = dict(zip(models, steps))
     
     for model_name in models:
@@ -152,15 +147,6 @@ for _ in range(1):
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
             prior_x_test = MultivariateNormalPrior(X_prior_mean_test, torch.eye(X_prior_mean.shape[1]))
             X = NNEncoder(N, latent_dim, prior_x, data_dim, layers=nn_layers)
-            
-        # elif model_name == 'iaf':
-            
-        #     ae = True
-        #     nn_layers = (5,3,2)
-        #     context_size = 4
-        #     n_flows=8
-        #     prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        #     X = IAFEncoder(N, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
             
         # Initialise model, likelihood, elbo and optimizer
         
@@ -268,7 +254,8 @@ for _ in range(1):
             Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
             
             # ################################
-            # # # Compute the metrics:
+            # Compute the metrics:
+                
             from utils.metrics import *
             
             # 1) Reconstruction error - Train & Test
@@ -278,67 +265,8 @@ for _ in range(1):
             
             print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
             print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
-            
-            # 2) Negative Test log-likelihood
-            if model_name in ('point', 'map', 'gauss'):
-                nll = losses_test[-1]/len(Y_test)
-            else:
-                with torch.no_grad():
-                    Y_star = model(X_test_mean)
-                    nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
-                    
-            print(f'Test NLL {model_name} = ' + str(nll))
-    
-    
-lb_train_dict = {}
-Y_train_dict = {}
-
-lb_train_dict[SEED] = lb_train
-Y_train_dict[SEED] = Y_train
-
-## Oilflow plot for the paper
-
-models = [model_dict['point_19'], model_dict['map_15'], model_dict['gauss_19'], model_dict['nn_gauss_15']]
-labels = [lb_train_dict[19], lb_train_dict[15], lb_train_dict[19], lb_train_dict[15]]
-Y_trains = [Y_train_dict[19], Y_train_dict[15], Y_train_dict[19], Y_train_dict[15]]
     
     
     
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-        # metrics_df = pd.DataFrame(columns=['-elbo','mse','tll'], index=['Gaussian','Flows'])
-        
-        # metrics_df['-elbo'] = [losses[-1], losses_flow[-1]]
-        # metrics_df['mse'] = [mse_test_gaussian.item(), mse_test_flow.item()]
-        # metrics_df['nll'] = [np.mean(nll), np.mean(nll_flow)]
-        # #metrics_df['se_nll'] = [np.std(nll)/np.sqrt(40), np.std(nll_flow)/np.sqrt(40)]
-        
-        # metrics_df.to_csv('metrics/metrics_' + model + '_' + dataset_name + '.csv')
-            
-    # # Plot result
-    
-    # plt.figure(figsize=(8, 6))
-    # colors = ['r', 'b', 'g']
- 
-    # X = X_test.X.detach()
-    # X = model.X.X.detach()
-    # #X = model.X.q_mu.detach().numpy()
-    # #X = model.X.mu(Y).detach().numpy()
-    # #std = torch.nn.functional.softplus(model.X.q_log_sigma).detach().numpy()
-    
-    # # Select index of the smallest lengthscales by examining model.covar_module.base_kernel.lengthscales 
-    # for i, label in enumerate(np.unique(lb_train)):
-    #     X_i = X[lb_train == label]
-    #     #scale_i = std[labels == label]
-    #     plt.scatter(X_i[:, 0], X_i[:, 1], c=[colors[i]], label=label)
-    #     #plt.errorbar(X_i[:, 1], X_i[:, 0], xerr=scale_i[:,1], yerr=scale_i[:,0], label=label,c=colors[i], fmt='none')

@@ -85,8 +85,8 @@ if __name__ == '__main__':
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 11
-    n_inducing = 32
+    latent_dim = 15
+    n_inducing = 34
     pca = False
     
     # Run all 4 models and store results
@@ -158,16 +158,10 @@ if __name__ == '__main__':
             
     X_train_mean = model.get_X_mean(Y_train)
     X_train_scales = model.get_X_scales(Y_train)
-    
-    #plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'movie_lens_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
-    
+        
     #### Saving model with seed 
     print(f'Saving {model_name} {SEED}')
     
-    filename = f'movie_lens100k_{model_name}_{SEED}.pkl'
-    with open(f'pre_trained_models/{filename}', 'wb') as file:
-        pkl.dump(model.state_dict(), file)
-
     ####################### Testing Framework ################################################
     if TEST:
     #Compute latent test & reconstructions
@@ -195,12 +189,3 @@ if __name__ == '__main__':
         #print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
         print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
         
-        # # 2) Negative Test log-likelihood
-        # if model_name in ('point', 'map', 'gauss'):
-        #     nll = losses_test[-1]/len(Y_test)
-        # else:
-        #     with torch.no_grad():
-        #         Y_star = model(X_test_mean)
-        #         nll=-torch.sum(Y_star.log_prob(Y_test.T))/len(Y_test)
-                
-        # print(f'Test NLL {model_name} = ' + str(nll))

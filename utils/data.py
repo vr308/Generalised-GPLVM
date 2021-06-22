@@ -13,12 +13,15 @@ import torch
 import numpy as np
 from torch import tensor as tt
 import sklearn.datasets as skd
-import matplotlib.pyplot as plt
-import pyro.distributions as dist
+#import matplotlib.pyplot as plt
+#import pyro.distributions as dist
 from utils.data_utils import data_path, resource, dependency
 
 def float_tensor(X): return torch.tensor(X).float()
 
+def _init_pca(Y, latent_dim):
+    U, S, V = torch.pca_lowrank(Y, q = latent_dim)
+    return torch.nn.Parameter(torch.matmul(Y, V[:,:latent_dim]))
 
 def raw_movies_data():
 
@@ -349,58 +352,3 @@ def generate_synthetic_data(n=300, x_type=None, y_type='hi_dim'):
     q = 2
     return n, d, q, X, Y, labels
 
-# def create_batch_gp_data(X, labels, dim_y = 2, num_gp=2, kernel=None):
-    
-#     dim_latent = len(X.T)
-#     if kernel is None:
-#         kernel = gp.kernels.RBF(input_dim=dim_latent, variance=torch.tensor([2.]),
-#                             lengthscale=torch.tensor([1., 3.0]))
-    
-#     cov = float_tensor(kernel.forward(X) + 1e-5*torch.eye(len(X)))
-#     samples = dist.MultivariateNormal(torch.zeros(len(X)), covariance_matrix=cov).sample(sample_shape=(dim_y,))
-#     return samples.T
-
-
-# if __name__ == '__main__':
-
-#     plt.ion()
-#     plt.style.use('ggplot')
-
-#     X = {}
-#     X['blobs'], b_labels = _load_2d_synthetic_latent('blobs')
-#     X['varied'], v_labels = _load_2d_synthetic_latent('varied')
-#     X['circles'], nc_labels = _load_2d_synthetic_latent('noisy_circles')
-#     X['moons'], mm_labels = _load_2d_synthetic_latent('make_moons')
-#     # X['potential'] = _load_2d_weird_latent(1000)
-
-#     labels = {}
-#     labels['blobs'] = b_labels
-#     labels['varied'] = v_labels
-#     labels['circles'] = nc_labels
-#     labels['moons'] = mm_labels
-    
-#     kernel = gp.kernels.Matern32(input_dim=2, variance=torch.tensor([1.]),
-#                             lengthscale=torch.tensor([1., 2.0]))
-    
-#     Y = {}
-#     Y['blobs'] = create_batch_gp_data(torch.tensor(X['blobs']), b_labels, dim_y = 2, num_gp=2, kernel=kernel)
-#     Y['varied'] = create_batch_gp_data(torch.tensor(X['varied']), v_labels, dim_y = 2, num_gp=2, kernel=kernel)
-#     Y['circles'] = create_batch_gp_data(torch.tensor(X['circles']), nc_labels, dim_y = 2, num_gp=2, kernel=kernel)
-#     Y['moons'] = create_batch_gp_data(torch.tensor(X['moons']), mm_labels, dim_y = 2, num_gp=2, kernel=kernel)
-
-#     plt.figure(figsize=(12, 4))
-#     for i, (key, data) in enumerate(X.items()):
-#         plt.subplot(1, 4, i+1)
-#         plt.scatter(data[:, 0], data[:, 1], s=1, c=labels[key])
-#         plt.title(key, fontsize='small')
-#     plt.suptitle('2d Synthetic Latent Distributions',  fontsize='small')
-    
-#     plt.figure(figsize=(12, 4))
-#     for i, (key, data) in enumerate(Y.items()):
-#         plt.subplot(1, 4, i+1)
-#         plt.scatter(data[:,0], data[:,1], s=1, c=labels[key])
-#         plt.title(key, fontsize='small')
-#     plt.suptitle('2d Synthetic Latent Distributions warped by Independent Gaussian Processes',  fontsize='small')
-    
-        
-    

@@ -5,10 +5,6 @@ Demo script for bGPLVM Gaussian with different inference modes.
 
 """
 
-# TODO's:
-# Snaphot param state and save
-# Flexible variational family
-
 from utils.data import load_real_data 
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import *
@@ -62,13 +58,10 @@ class My_GPLVM_Model(BayesianGPLVM):
         if nn_layers is not None:
             prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
             X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
-            #context_size = 10
-            #n_flows=3
-            #X = IAFEncoder(self.n, latent_dim, context_size, prior_x, data_dim, nn_layers, n_flows)
         else:
-            #prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            #X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
-            X = PointLatentVariable(X_init)
+            prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+            X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
+            #X = PointLatentVariable(X_init)
 
         
         super(My_GPLVM_Model, self).__init__(X, q_f)
@@ -99,7 +92,6 @@ if __name__ == '__main__':
 
     # Load some data
     
-    #N, d, q, X, Y, labels = load_real_data('movie_lens')
     N, d, q, X, Y, labels = load_real_data('oilflow')
     
     Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
@@ -135,32 +127,21 @@ if __name__ == '__main__':
     # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
     # using the optimizer provided.
     
-    # loss_list = []
-    # iterator = trange(5000, leave=True)
-    # batch_size = 100
-    # for i in iterator: 
-    #     batch_index = model._get_batch_idx(batch_size)
-    #     optimizer.zero_grad()
-    #     sample = model.sample_latent_variable(Y_train)  # a full sample returns latent x across all N
-    #     sample_batch = sample[batch_index]
-    #     output_batch = model(sample_batch)
-    #     loss = -mll(output_batch, Y_train[batch_index].T).sum()
-    #     loss_list.append(loss.item())
-    #     iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
-    #     loss.backward()
-    #     optimizer.step()
+    loss_list = []
+    iterator = trange(5000, leave=True)
+    batch_size = 100
+    for i in iterator: 
+        batch_index = model._get_batch_idx(batch_size)
+        optimizer.zero_grad()
+        sample = model.sample_latent_variable(Y_train)  # a full sample returns latent x across all N
+        sample_batch = sample[batch_index]
+        output_batch = model(sample_batch)
+        loss = -mll(output_batch, Y_train[batch_index].T).sum()
+        loss_list.append(loss.item())
+        iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
+        loss.backward()
+        optimizer.step()
         
-    # Save model
-    
-    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
-        with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
-            model_sd = pkl.load(file)
-            model.load_state_dict(model_sd)
-
-    filename = f'oilflow_{model_name}_{SEED}.pkl'
-    with open(f'pre_trained_models/{filename}', 'wb') as file:
-        pkl.dump(model.state_dict(), file)
-    
     # plt.figure(figsize=(8, 6))
     # colors = ['r', 'b', 'g']
  
