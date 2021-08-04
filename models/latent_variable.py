@@ -13,7 +13,7 @@ from models.iaf import AutoRegressiveNN
 import torch.nn.functional as F
 import numpy as np
 from models.partial_gaussian import PointNet
-from pyro.distributions.transforms import Planar
+#from pyro.distributions.transforms import Planar
 
 class LatentVariable(gpytorch.Module):
     
