@@ -16,14 +16,16 @@ from gpflow.config import set_default_float, default_float, set_default_summary_
 from gpflow.ci_utils import ci_niter
 from sklearn.model_selection import train_test_split
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 if __name__ == '__main__':
 
     SEED = 37 # for reproducibility
 
     N, d, q, X, Y, labels = load_real_data('oilflow')
     
-    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
-    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=0.1, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=0.1, random_state=SEED)
     
     Y_train = tf.constant(Y_train, dtype='float64')
     Y_test = tf.constant(Y_test, dtype='float64')
