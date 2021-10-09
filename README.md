@@ -1,4 +1,4 @@
-# Generalised-GPLVM (NeurIPS 2021 submission)
+# Generalised-GPLVM 
 
 Generalised GPLVM with SVI
 
