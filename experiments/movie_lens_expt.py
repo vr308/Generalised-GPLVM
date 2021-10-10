@@ -78,8 +78,7 @@ if __name__ == '__main__':
     
     N, d, q, X, Y, labels = load_real_data('movie_lens_100k')
     
-    Y_train, Y_test = train_test_split(Y.numpy(), test_size=100, random_state=SEED)
-    #lb_train, lb_test = train_test_split(labels, test_size=100, random_state=SEED)
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=0.1, random_state=SEED, shuffle=True)
     
     Y_train = torch.Tensor(Y_train).cuda()
     Y_test = torch.Tensor(Y_test).cuda()
@@ -87,8 +86,8 @@ if __name__ == '__main__':
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 15
-    n_inducing = 34
+    latent_dim = 7
+    n_inducing = 45
     pca = False
     
     # Run all 4 models and store results
@@ -114,12 +113,12 @@ if __name__ == '__main__':
     
     model = model.cuda()
     likelihood = likelihood.cuda()
-    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=0.9)
+    elbo = VariationalELBO(likelihood, model, num_data=len(Y_train), beta=1.0)
 
     optimizer = torch.optim.Adam([
     {'params': model.parameters()},
     {'params': likelihood.parameters()}
-    ], lr=0.005)
+    ], lr=0.001)
 
     # Model params
     print(f'Training model params for model {model_name}')
@@ -131,7 +130,7 @@ if __name__ == '__main__':
     loss_list = []
     noise_trace = []
     
-    iterator = trange(8000, leave=True)
+    iterator = trange(20000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)
@@ -146,10 +145,10 @@ if __name__ == '__main__':
         optimizer.step()
     model.store(loss_list, likelihood)
     
-    # if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
-    #    with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
-    #        model_sd = pkl.load(file)
-    #        model.load_state_dict(model_sd)
+    if os.path.isfile('pre_trained_models/movie_lens100k_gauss_93.pkl'):
+        with open('pre_trained_models/movie_lens100k_gauss_93.pkl', 'rb') as file:
+            model_sd = pkl.load(file)
+            model.load_state_dict(model_sd)
         
     # Save models & training info
     
@@ -172,7 +171,7 @@ if __name__ == '__main__':
         
             losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
                                   likelihood, SEED, prior_x=prior_x_test, ae=ae, 
-                                  model_name=model_name,pca=pca, steps=7000)
+                                  model_name=model_name,pca=pca, steps=20000)
             
         X_test_mean = X_test.q_mu.detach().cuda()
         Y_test_recon, Y_test_pred_covar = model.reconstruct_y(X_test_mean, Y_test, ae=ae, model_name=model_name)
@@ -189,4 +188,46 @@ if __name__ == '__main__':
         
         #print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
         print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+        
+#####
+
+## Ratings per movie plot
+
+import pandas as pd
+
+mat = Y_test.to('cpu')
+binary = mat.isfinite()
+covar = Y_test_pred_covar.to('cpu')
+lis = [x.diag().mean().item() for x in covar]
+rat_per_movie = binary.sum(axis=0)
+plt.plot(rat_per_movie, lis, 'bo')
+
+
+df = pd.DataFrame()
+df['ratings'] = rat_per_movie
+df['vars'] = lis
+
+rating = []
+list_per_rating = []
+
+for i in torch.unique(rat_per_movie)[1:]:
+    rating.append(i.item())
+    list_per_rating.append(np.array(df[df['ratings'] == i.item()]['vars']))
+    
+plt.figure()
+plt.boxplot(list_per_rating, labels=rating,patch_artist=True, boxprops=dict(facecolor="red"))
+plt.xlabel('Number of observed ratings')
+plt.ylabel('Avg. GP Predictive Variance')
+
+## Ratings per user plot
+
+rat_per_user =  binary.sum(axis=1)
+pred_var_pm_pu = np.empty(shape=(1682,95))
+
+for i in range(1682):
+    pred_var_pm_pu[i] = covar[i].diag().detach()
+
+var_per_user=pred_var_pm_pu.mean(axis=0)
+
+plt.bar(rat_per_user, var_per_user)
         

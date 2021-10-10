@@ -5,7 +5,7 @@ Demo script for bGPLVM Gaussian with different inference modes.
 
 """
 
-from utils.data import load_real_data 
+from utils.data import *
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import *
 from matplotlib import pyplot as plt

@@ -25,7 +25,9 @@ torch.manual_seed(345)
 #device='cpu'
 
 class Dataset(torch.utils.data.Dataset):
-  'Characterizes a dataset for PyTorch'
+  
+  '''Characterizes a dataset for PyTorch'''
+  
   def __init__(self, list_IDs, labels):
         'Initialization'
         self.labels = labels
@@ -47,8 +49,10 @@ class Dataset(torch.utils.data.Dataset):
         return X, y
 
 class VAE(nn.Module):
+    
         def __init__(self, latent_dims):
             super(VAE, self).__init__()
+            
             # encoder
             self.encoder = nn.Sequential(
                     nn.Linear(in_features=12, out_features=5),
@@ -201,7 +205,7 @@ def validate(model, val_loader, epoch):
 def plot_latent(model, test_X, test_y):
         z = model.encoder(test_X.to(device))
         z = z.to('cpu').detach().numpy()
-        plt.scatter(z[:, 0], z[:, 1], c=test_y, cmap='tab10')
+        plt.scatter(z[:, 1], z[:, 2], c=test_y, cmap='tab10')
 
 if __name__ == "__main__":
 
@@ -231,6 +235,7 @@ if __name__ == "__main__":
     test_loader = torch.utils.data.DataLoader(Y, batch_size=100, shuffle=True)
     
     ## Check forward pass
+
     inputs = train_loader.__iter__().next()
     inputs = inputs.to(device)
     outputs, mu, sigma = vae(inputs)

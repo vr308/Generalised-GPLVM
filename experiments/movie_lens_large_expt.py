@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Fri May 28 16:55:19 2021
-
-@author: vidhi
 """
 
 from utils.data import load_real_data 
@@ -161,19 +158,19 @@ if __name__ == '__main__':
         
     # Save models & training info
     
-    print(model.covar_module.base_kernel.lengthscale)
-    model_dict[model_name + '_' + str(SEED)] = model
-    noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
+    # print(model.covar_module.base_kernel.lengthscale)
+    # model_dict[model_name + '_' + str(SEED)] = model
+    # noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
             
-    X_train_mean = model.cpu().get_X_mean(Y_train)
-    X_train_scales = model.cpu().get_X_scales(Y_train)
+    # X_train_mean = model.cpu().get_X_mean(Y_train)
+    # X_train_scales = model.cpu().get_X_scales(Y_train)
         
-    #### Saving model with seed 
-    print(f'Saving {model_name} {SEED}')
+    # #### Saving model with seed 
+    # print(f'Saving {model_name} {SEED}')
     
-    filename = f'movie_lens1m_{model_name}_{SEED}.pkl'
-    with open(f'pre_trained_models/{filename}', 'wb') as file:
-        pkl.dump(model.cpu().state_dict(), file)
+    # filename = f'movie_lens1m_{model_name}_{SEED}.pkl'
+    # with open(f'pre_trained_models/{filename}', 'wb') as file:
+    #     pkl.dump(model.cpu().state_dict(), file)
 
     ####################### Testing Framework ################################################
     if TEST:
