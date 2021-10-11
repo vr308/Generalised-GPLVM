@@ -121,6 +121,7 @@ def plot_skeleton(fig, subplot_index, Y_vec, missing_verts=set(), recursive=Fals
     ax.set_yticks([])
     ax.set_xticks([])
     ax.set_zticks([])
+    plt.tight_layout()
 
 if __name__ == '__main__':
 
