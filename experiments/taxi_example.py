@@ -81,4 +81,6 @@ if __name__ == '__main__':
 
     losses = train(gplvm=gplvm, X_latent=X_latent, likelihood=likelihood, Y=torch.tensor(Y), steps=10000)
 
-    plt.plot(losses)
+    t = X_latent().detach().reshape(-1)
+    t_true = data.day_time.str.replace('^.*_', '').astype(int)
+    plt.scatter(t, t_true)
