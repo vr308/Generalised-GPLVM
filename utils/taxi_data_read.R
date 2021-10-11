@@ -29,4 +29,4 @@ ggplot(data) +
 
 data[, day_time := paste0(day(pickup_time), '_', hour(pickup_time))]
 
-write.csv(data[, .(day_time, yellow, green, fhv)], '', row.names=F)
+write.csv(data[, .(day_time, yellow, green, fhv)], 'taxi_count_data.csv', row.names=F)
