@@ -9,6 +9,7 @@ import torch
 from torch import nn
 from torch.distributions import kl_divergence
 from gpytorch.mlls.added_loss_term import AddedLossTerm
+import torch.nn.functional as F
 import numpy as np
 from models.partial_gaussian import PointNet
 
