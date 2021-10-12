@@ -9,6 +9,7 @@ import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import VariationalLatentVariable
 from models.likelihoods import GaussianLikelihoodWithMissingObs
+from utils.metrics import *
 
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
@@ -159,18 +160,13 @@ if __name__ == '__main__':
     model = GPLVM(n, d, q, n_inducing=30)
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
 
-    if torch.cuda.is_available():
-        device = 'cuda'
-        model = model.cuda()
-        likelihood = likelihood.cuda()
-    else:
-        device = 'cpu'
+    device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=15000, batch_size=200)
+    losses = train(model, likelihood, Y, steps=150, batch_size=200)
 
-    if os.path.isfile('for_paper/mocap_cpu_diff_motions.pkl'):
-        with open('for_paper/mocap_cpu_diff_motions.pkl', 'rb') as file:
+    if os.path.isfile('pre_trained_models/mocap_cpu_diff_motions.pkl'):
+        with open('pre_trained_models/mocap_cpu_diff_motions.pkl', 'rb') as file:
             model_sd, likl_sd = pkl.load(file)
             model.load_state_dict(model_sd)
             likelihood.load_state_dict(likl_sd)
@@ -180,15 +176,15 @@ if __name__ == '__main__':
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 
-    fig = plt.figure(figsize=(8,3))
-    plot_skeleton(fig, 132, Y_full[0, :], {1, 14, 18}, True)    
-    plt.title('Train', fontsize='small')
+    # fig = plt.figure(figsize=(8,3))
+    # plot_skeleton(fig, 132, Y_full[0, :], {1, 14, 18}, True)    
+    # plt.title('Train', fontsize='small')
 
-    plot_skeleton(fig, 133, Y_recon[0, :])
-    plt.title('Reconstruction', fontsize='small')
+    # plot_skeleton(fig, 133, Y_recon[0, :])
+    # plt.title('Reconstruction', fontsize='small')
 
-    plot_skeleton(fig, 131, Y_full[0, :])
-    plt.title('Ground Truth', fontsize='small')
+    # plot_skeleton(fig, 131, Y_full[0, :])
+    # plt.title('Ground Truth', fontsize='small')
 
     # plot_skeleton(Y_full[205, :], {12}, True)    
     # plt.title('Training Data')
@@ -201,18 +197,19 @@ if __name__ == '__main__':
 
     plt.ioff()
     for i in range(n):
-        fig = plt.figure(figsize=(8,3))
+        fig = plt.figure(figsize=(7,2.5))
         plot_skeleton(fig, 132, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
-        plt.title('Training Data: ' + str(lb[i]))
+        plt.title('Training Data: ' + str(lb[i]), fontsize='small')
         plot_skeleton(fig, 133, Y_recon[i, :])
-        plt.title('Reconstruction: ' + str(lb[i]))
+        plt.title('Reconstruction: ' + str(lb[i]), fontsize='small')
         plot_skeleton(fig, 131, Y_full[i, :])
-        plt.title('Ground Truth: ' + str(lb[i]))
-        plt.savefig('img/' + f'{i:03d}' + '.png')
+        plt.title('Ground Truth: ' + str(lb[i]), fontsize='small')
+        plt.tight_layout()
+        plt.savefig('train_mocap_img/' + f'{i:03d}' + '.png')
         plt.close()
 
-    # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
-    # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
+    # # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
+    # # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
 
     Y_test_full = torch.tensor(pods.datasets.cmu_mocap('16', ['21', '45', '03'])['Y']).float() # walk, run, high jump
     Y_test_full[:, 0:3] = 0.0
@@ -231,13 +228,29 @@ if __name__ == '__main__':
     np.save('y_test_recon.npy', Y_test_recon)
 
     plt.ioff()
-    for i in range(n_test):
-        fig = plt.figure(figsize=(8,3))
+    for i in range(len(Y_test_recon)):
+        fig = plt.figure(figsize=(7,2.5))
         plot_skeleton(fig, 132, Y_test_full[i, :], {1, 14, 18}, True)
-        plt.title('Test Data')
+        plt.title('Test Data', fontsize='small')
         plot_skeleton(fig, 133, Y_test_recon[i, :])
-        plt.title('Reconstruction')
+        plt.title('Reconstruction', fontsize='small')
         plot_skeleton(fig, 131, Y_test_full[i, :])
-        plt.title('Ground Truth')
-        plt.savefig('img/' + f'{i:03d}' + '.png')
+        plt.title('Ground Truth', fontsize='small')
+        plt.tight_layout()
+        plt.savefig('test_mocap_img/' + f'{i:03d}' + '.png')
         plt.close()
+        
+ 
+    # ################################
+    # Compute the metrics:
+        
+    from utils.metrics import *
+    
+    # 1) Reconstruction error - Train & Test
+    
+    rmse_train = rmse_missing(Y, Y_recon)
+    rmse_test = rmse_missing(Y_test, Y_test_recon)
+    
+    print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
+    print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
+   

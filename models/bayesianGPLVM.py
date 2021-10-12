@@ -58,6 +58,7 @@ class BayesianGPLVM(ApproximateGP):
             test_model.train()
         else:
             test_model.train()
+        
         test_model.n = len(Y_test)
         latent_dim = self.X.latent_dim #q
         
@@ -69,9 +70,10 @@ class BayesianGPLVM(ApproximateGP):
              X_init = torch.nn.Parameter(torch.randn(test_model.n, latent_dim))
         
         kwargs = {'X_init_test': X_init}
-        if prior_x is not None:
+        if prior_x is not None:   ### MAP or Gaussian
             kwargs['prior_x_test'] = prior_x
-        if hasattr(test_model.X, 'data_dim'):
+            
+        if hasattr(test_model.X, 'data_dim'):  #### Point
             kwargs['data_dim'] = Y_test.shape[1]
 
         test_model.X.reset(**kwargs)
@@ -96,7 +98,7 @@ class BayesianGPLVM(ApproximateGP):
                 # nn-gauss
                 mu_star = self.X.mu(Y_test)
                 sigma_star = self.X.sigma(Y_test)
-                return mu_star, sigma_star # A says change return to match flow_samples
+                return mu_star, sigma_star 
             
         else:
             # Train for test X variational params

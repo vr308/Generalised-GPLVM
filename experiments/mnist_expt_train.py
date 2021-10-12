@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 plt.ion(); plt.style.use('ggplot')
 
 import pickle as pkl
+import gc
 from utils.data import load_real_data
 from models.bayesianGPLVM import BayesianGPLVM
 from models.latent_variable import VariationalLatentVariable
@@ -29,7 +30,7 @@ class GPLVM(BayesianGPLVM):
     def __init__(self, n, data_dim, latent_dim, n_inducing, X_init):
         self.n = n
         self.batch_shape = torch.Size([data_dim])
-        self.inducing_inputs = torch.randn(n_inducing, latent_dim)
+        self.inducing_inputs = torch.randn(data_dim, n_inducing, latent_dim)
 
         q_u = CholeskyVariationalDistribution(n_inducing, batch_shape=self.batch_shape) 
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=True)
@@ -58,7 +59,7 @@ class GPLVM(BayesianGPLVM):
 def train(model, likelihood, Y, steps=1000, batch_size=100):
 
     elbo = VariationalELBO(likelihood, model, num_data=len(Y))
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.005)
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(likelihood.parameters()), lr=0.01)
 
     losses = []
     iterator = trange(steps)
@@ -77,22 +78,37 @@ def train(model, likelihood, Y, steps=1000, batch_size=100):
 
     return losses
 
+def get_Y_missing(Y, percent):
+    
+    idx = np.random.binomial(n=1, p=percent, size=Y.shape).astype(bool)
+    Y_missing = Y.clone()
+    Y_missing[idx] = np.nan
+    return Y_missing
+    
 if __name__ == '__main__':
 
-    torch.manual_seed(42)
+    SEED = 42
+    torch.manual_seed(SEED)
+    model_name = 'gauss'
 
     n, d, q, X, Y, lb = load_real_data('mnist')
     q = 6; Y /= 255
-    Y = Y[:5000]; n = len(Y)
+    #Y = Y[:5000]; n = len(Y)
+    
+    Y = Y[np.isin(lb, (1, 7)), :]
+    lb = lb[np.isin(lb, (1, 7))]
+    n = len(Y)
 
     # remove some obs from Y
     Y_full = Y.clone()
-    idx_a = np.random.choice(range(n), n * d)
-    idx_b = np.random.choice(range(d), n * d)
-    Y[idx_a, idx_b] = np.nan
+    
+    Y_missing = get_Y_missing(Y_full, 0.0)
+   
     (Y.isnan().sum(axis=1) == d).any() # False hopefully
+    
+    print('The % missing from the Y matrix is: ' + str(Y_missing.isnan().float().mean()))
 
-    # plt.imshow(Y[0].reshape(28, 28))
+    #plt.imshow(Y_missing[0].reshape(28, 28))
 
     model = GPLVM(n, d, q, n_inducing=120, X_init=_init_pca(Y, q))
     likelihood = GaussianLikelihoodWithMissingObs(batch_shape=model.batch_shape)
@@ -104,20 +120,25 @@ if __name__ == '__main__':
     else:
         device = 'cpu'
 
+    print('The device is ' + device)
+    
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=15000, batch_size=300)
+    losses = train(model, likelihood, Y, steps=5000, batch_size=100)
+    
+    torch.cuda.empty_cache()
+    gc.collect()
+    
+    ## Reset the prior for the full dataset size
+    X_prior_mean = torch.zeros(n, q)
 
-    # if os.path.isfile('for_paper/mnist_full.pkl'):
-    #     with open('for_paper/mnist_full.pkl', 'rb') as file:
-    #         model_sd, likl_sd = pkl.load(file)
-    #         model.load_state_dict(model_sd)
-    #         likelihood.load_state_dict(likl_sd)
-
-    with open('for_paper/mnist_full.pkl', 'wb') as file:
+    model.X.prior_x.loc = torch.zeros(n, q)
+    model.X.prior_x.scale = torch.ones_like(X_prior_mean)
+    
+    with open('pre_trained_models/mnist_full.pkl', 'wb') as file:
         pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
-    # samples = model.X.q_mu.detach().cpu()
-    # plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb[:5000])
+    #samples = model.X.q_mu.detach().cpu()
+    #plt.scatter(samples[:, 0], samples[:, 1], alpha=0.01, c=lb)
 
     # plt.style.use('seaborn-deep')
     # fig, axs = plt.subplots(3, 7)

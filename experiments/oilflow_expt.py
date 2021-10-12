@@ -66,7 +66,6 @@ class OilFlowModel(BayesianGPLVM):
      
 if __name__ == '__main__':
     
-    
     TEST = True
     increment = np.random.randint(0,100,3)
 

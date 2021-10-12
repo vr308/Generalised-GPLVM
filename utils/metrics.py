@@ -20,7 +20,7 @@ def rmse(Y_test, Y_recon):
 
 def rmse_missing(Y_test, Y_recon):
     
-    return torch.sqrt(torch.mean(torch.Tensor([np.nanmean(np.square(Y_test - Y_recon))])))
+    return torch.sqrt(torch.Tensor([np.nanmean(np.square(Y_test - Y_recon))]))
 
 # def decomm_test_log_likelihood(model, Y_test, test_dist):
     
