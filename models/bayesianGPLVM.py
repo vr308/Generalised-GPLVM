@@ -53,11 +53,7 @@ class BayesianGPLVM(ApproximateGP):
         else:
             test_model = deepcopy(self) # A says better to re-initialise
         # self is in eval mode - but test_model needs to be in train_mode
-        if torch.cuda.is_available():
-            test_model = test_model.cuda()
-            test_model.train()
-        else:
-            test_model.train()
+        test_model.train()
         test_model.n = len(Y_test)
         latent_dim = self.X.latent_dim #q
         
@@ -66,7 +62,7 @@ class BayesianGPLVM(ApproximateGP):
         if pca == True:
              X_init = _init_pca(Y_test, latent_dim) # Initialise X to PCA 
         else:
-             X_init = torch.nn.Parameter(torch.randn(test_model.n, latent_dim))
+             X_init = torch.nn.Parameter(torch.ones(test_model.n, latent_dim)*0.1)
         
         kwargs = {'X_init_test': X_init}
         if prior_x is not None:
@@ -120,16 +116,17 @@ class BayesianGPLVM(ApproximateGP):
             iterator = trange(steps, leave=True)
             batch_size = len(Y_test) if len(Y_test) < 100 else 100
             for i in iterator: 
-                batch_index = test_model._get_batch_idx(batch_size)
-                optimizer.zero_grad()
-                sample = test_model.sample_latent_variable()  # a full sample returns latent x across all N
-                sample_batch = sample[batch_index]
-                sample_batch = sample_batch.cuda() if torch.cuda.is_available() else sample_batch
-                sample_batch.requires_grad_(True)
-                
-                output_batch = test_model(sample_batch)
-                loss = -elbo(output_batch, Y_test[batch_index].T).sum()
-                loss.requires_grad_(True)
+                loss=0.0
+                for _ in range(10):
+                    batch_index = test_model._get_batch_idx(batch_size)
+                    optimizer.zero_grad()
+                    sample = test_model.sample_latent_variable()  # a full sample returns latent x across all N
+                    sample_batch = sample[batch_index]
+                    sample_batch.requires_grad_(True)
+                    
+                    output_batch = test_model(sample_batch)
+                    loss = loss - elbo(output_batch, Y_test[batch_index].T).sum()
+                    loss.requires_grad_(True)
                 loss_list.append(loss.item())
                 iterator.set_description('Loss: ' + str(float(np.round(loss.item(),2))) + ", iter no: " + str(i))
                 loss.backward()
