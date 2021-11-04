@@ -103,11 +103,11 @@ if __name__ == '__main__':
     model.X.jitter = model.X.jitter.to(device=device)
     losses = train(model, likelihood, Y, steps=10, batch_size=450)
 
-    if os.path.isfile('for_paper/faces_cpu.pkl'):
-        with open('for_paper/faces_cpu.pkl', 'rb') as file:
-            model_sd, likl_sd = pkl.load(file)
-            model.load_state_dict(model_sd)
-            likelihood.load_state_dict(likl_sd)
+    # if os.path.isfile('for_paper/faces_cpu.pkl'):
+    #     with open('for_paper/faces_cpu.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
 
     #with open('for_paper/faces_5dim_latent.pkl', 'wb') as file:
     #   pkl.dump((model.state_dict(), likelihood.state_dict()), file)
