@@ -107,8 +107,8 @@ for _ in range(1):
     
     # Run all 4 models and store results
     
-    models = ['nn_gauss']
-    steps = [10000]
+    models = ['point', 'map', 'gauss', 'nn_gauss']
+    steps = [10000]*4
     steps_per_model = dict(zip(models, steps))
 
     for model_name in models:
@@ -167,7 +167,7 @@ for _ in range(1):
         optimizer = torch.optim.Adam([
         {'params': model.parameters()},
         {'params': likelihood.parameters()}
-        ], lr=0.01)
+        ], lr=0.001)
     
         # Model params
         print(f'Training model params for model {model_name}')
@@ -181,9 +181,6 @@ for _ in range(1):
         iterator = trange(steps_per_model[model_name], leave=True)
         batch_size = 500
         for i in iterator:
-            if i == 1000:
-                for g in optimizer.param_groups:
-                    g['lr'] = 0.001
             loss = 0
             for loss_iter in range(10):
                 batch_index = model._get_batch_idx(batch_size)
@@ -276,3 +273,6 @@ for _ in range(1):
             
             print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
             print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+
+            with open('nn_recons.pkl', 'wb') as file:
+                pkl.dump((Y_test, Y_test_recon.T.exp().detach()), file)

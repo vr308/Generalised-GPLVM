@@ -7,7 +7,7 @@ plt.ion(); plt.style.use('ggplot')
 
 import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalLatentVariable
+from models.latent_variable import PointLatentVariable
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 
 from gpytorch.means import ConstantMean
@@ -29,8 +29,7 @@ class GPLVM(BayesianGPLVM):
         q_f = VariationalStrategy(self, self.inducing_inputs, q_u, learn_inducing_locations=False)
 
         X_prior_mean = torch.zeros(n, latent_dim)
-        prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-        X = VariationalLatentVariable(X_prior_mean, prior_x, data_dim)
+        X = PointLatentVariable(torch.nn.Parameter(X_prior_mean))
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -170,14 +169,14 @@ if __name__ == '__main__':
     Y = torch.tensor(Y, device=device)
     losses = train(model, likelihood, Y, steps=15000, batch_size=200)
 
-    if os.path.isfile('for_paper/mocap_cpu_diff_motions.pkl'):
-        with open('for_paper/mocap_cpu_diff_motions.pkl', 'rb') as file:
-            model_sd, likl_sd = pkl.load(file)
-            model.load_state_dict(model_sd)
-            likelihood.load_state_dict(likl_sd)
+    # if os.path.isfile('for_paper/mocap_cpu_diff_motions.pkl'):
+    #     with open('for_paper/mocap_cpu_diff_motions.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
 
-    # with open('for_paper/mocap_cpu_diff_motions.pkl', 'wb') as file:
-    #    pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
+    with open('for_paper/mocap_cpu_diff_motions_PLV.pkl', 'wb') as file:
+       pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
     Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
 

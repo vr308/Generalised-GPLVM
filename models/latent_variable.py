@@ -39,9 +39,11 @@ class PointLatentVariable(LatentVariable):
         super().__init__(n, latent_dim)
         self.register_parameter('X', X_init)
 
-    def forward(self):
-        return self.X
-    
+    def forward(self, batch_idx=None):        
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+        return self.X[batch_idx, :]
+
     def reset(self, X_init_test):
         self.__init__(X_init_test)
         
@@ -54,9 +56,11 @@ class MAPLatentVariable(LatentVariable):
         self.register_parameter('X', X_init)
         self.register_prior('prior_x', prior_x, 'X')
 
-    def forward(self):
-        return self.X
-    
+    def forward(self, batch_idx=None):        
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+        return self.X[batch_idx, :]
+
     def reset(self, X_init_test, prior_x_test):
         self.__init__(X_init_test, prior_x_test)
 
