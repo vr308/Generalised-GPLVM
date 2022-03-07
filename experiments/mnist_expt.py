@@ -10,7 +10,7 @@ import gc
 from utils.data import load_real_data
 from utils.metrics import rmse_missing
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalLatentVariable, VariationalDenseLatentVariable
+from models.latent_variable import PointLatentVariable, MAPLatentVariable, VariationalDenseLatentVariable
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from utils.visualisation import plot_y_reconstruction
 from gpytorch.means import ConstantMean
@@ -37,9 +37,11 @@ class GPLVM(BayesianGPLVM):
 
         X_prior_mean = torch.zeros(n, latent_dim)
 
-        #prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-        prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
-        X = VariationalDenseLatentVariable(X_init, prior_x, data_dim)
+        prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
+        X = PointLatentVariable(torch.nn.Parameter(X_prior_mean))
+        #X = MAPLatentVariable(torch.nn.Parameter(X_prior_mean), prior_x)
+        #prior_x = MultivariateNormalPrior(X_prior_mean, torch.eye(X_prior_mean.shape[1]))
+        #X = VariationalDenseLatentVariable(X_init, prior_x, data_dim)
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -79,10 +81,11 @@ def train(model, likelihood, Y, steps=1000, batch_size=100):
 
     return losses
 
-def get_Y_missing(Y, percent):
+def get_Y_missing(Y, N_train, percent):
     
-    idx = np.random.binomial(n=1, p=percent, size=Y.shape).astype(bool)
-    Y_missing = Y.clone()
+    idx = np.random.binomial(n=1, p=percent, size=(N_train, Y.shape[1])).astype(bool)
+    train_idx = np.random.randint(0, Y.shape[0], N_train)
+    Y_missing = Y.clone()[train_idx]
     Y_missing[idx] = np.nan
     return Y_missing
 
@@ -93,7 +96,7 @@ def get_Y_test_missing(Y_full, lb, N_test, percent):
     Y_test_missing = Y_full.clone()[test_idx]
     Y_test_missing[idx] = np.nan
     lb_test = lb[test_idx]
-    return Y_test_missing, lb_test
+    return Y_full[test_idx], Y_test_missing, lb_test
 
     
 if __name__ == '__main__':
@@ -108,11 +111,12 @@ if __name__ == '__main__':
     
     Y = Y[np.isin(lb, (0, 7)), :]
     lb = lb[np.isin(lb, (0, 7))]
-    n = len(Y)
+    n = 5000 #len(Y)
 
     Y_full = Y.clone()
     
-    Y_missing = get_Y_missing(Y_full, 0.1)
+    N_train = 5000
+    Y_missing = get_Y_missing(Y_full, N_train, 0.3)
    
     #(Y.isnan().sum(axis=1) == d).any() # False
     
@@ -134,7 +138,14 @@ if __name__ == '__main__':
     print('The device is ' + device)
     
     Y_missing = torch.tensor(Y_missing, device=device)
-    losses = train(model, likelihood, Y_missing, steps=20000, batch_size=100)
+    losses = train(model, likelihood, Y_missing, steps=5000, batch_size=100)
+    
+    ##### Load MNIST-trained data
+    # if os.path.isfile('pre_trained_models/mnist/mnist_30_missing.pkl'):
+    #     with open('pre_trained_models/mnist/mnist_30_missing.pkl', 'rb') as file:
+    #         model_sd, likl_sd = pkl.load(file)
+    #         model.load_state_dict(model_sd)
+    #         likelihood.load_state_dict(likl_sd)
     
     # plt.figure()
     # plt.plot(losses)
@@ -175,8 +186,8 @@ if __name__ == '__main__':
         
     # #### Prepare Y_test data with a % of missing 
 
-    N_test = 1000
-    Y_test_missing, lb_test = get_Y_test_missing(Y_full, lb, N_test, percent=0.1)
+    N_test = 100
+    Y_test_full, Y_test_missing, lb_test = get_Y_test_missing(Y_full, lb, N_test, percent=0.3)
 
     #### Testing framework 
     
@@ -188,70 +199,81 @@ if __name__ == '__main__':
              
               X_prior_mean_test = torch.zeros(N_test, q)
 
-              prior_x_test = MultivariateNormalPrior(X_prior_mean_test, torch.eye(X_prior_mean_test.shape[1]))
+              #prior_x_test = MultivariateNormalPrior(X_prior_mean_test, torch.eye(X_prior_mean_test.shape[1]))
+              prior_x_test = None
+              model_name = 'point'
 
               losses_test,  X_test = model.predict_latent(Y.to(device), Y_test_missing.to(device), optimizer.defaults['lr'], 
-                          likelihood, SEED, prior_x=prior_x_test.to(device), ae=False, 
-                          model_name=model_name,pca=False, steps=20000)
+                          likelihood, SEED, prior_x=prior_x_test, ae=False, 
+                          model_name=model_name,pca=False, steps=5000)
                  
-    rmse = []
-    seq = np.arange(0,1001,100)
+    # rmse = []
+    # seq = np.arange(0,1001,100)
     
-    for i in range(len(seq)-1):
+    # for i in range(len(seq)-1):
         
-        lower = seq[i]
-        upper = seq[i+1]
+    #     lower = seq[i]
+    #     upper = seq[i+1]
         
-        Y_test_recon = model(X_test.q_mu[lower:upper]).loc.T.detach().cpu()
-        #Y_train_recon = model(model.X.q_mu[lower:upper]).loc.T.detach().cpu()
+    #     Y_test_recon = model(X_test.q_mu[lower:upper]).loc.T.detach().cpu()
+    #     #Y_train_recon = model(model.X.q_mu[lower:upper]).loc.T.detach().cpu()
 
-        # # Compute the metrics:
+    #     # # Compute the metrics:
         
-        # Reconstruction error - Test
+    #     # Reconstruction error - Test
         
-        #rmse_train = rmse_missing(Y_missing[lower:upper].cpu(), Y_train_recon.detach().cpu())
-        rmse_test = rmse_missing(Y_test_missing[lower:upper], Y_test_recon.detach().cpu())
+    #     #rmse_train = rmse_missing(Y_missing[lower:upper].cpu(), Y_train_recon.detach().cpu())
+    #     rmse_test = rmse_missing(Y_test_missing[lower:upper], Y_test_recon.detach().cpu())
         
-        #print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
-        print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
+    #     #print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
+    #     print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
         
-        rmse.append(rmse_test)
+    #     rmse.append(rmse_test)
         
-    print(f'Test Reconstruction error {model_name} = ' + str(torch.mean(torch.Tensor(rmse))))
+    # print(f'Test Reconstruction error {model_name} = ' + str(torch.mean(torch.Tensor(rmse))))
     
     ### plot some of the test reconstructions for sanity check
     
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    fig.suptitle('Reconstructions')
-    k = 10
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(Y_test_recon[k].reshape(28, 28).cpu())
-            axs[i, j].axis('off')
-    plt.tight_layout()
-    plt.suptitle('Test Reconstructions [10% missing pixels]', fontsize='small')
+    # plt.style.use('seaborn-deep')
+    # fig, axs = plt.subplots(3, 7)
+    # fig.suptitle('Reconstructions')
+    # k = 10
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(Y_test_recon[k].reshape(28, 28).cpu())
+    #         axs[i, j].axis('off')
+    # plt.tight_layout()
+    # plt.suptitle('Test Reconstructions [10% missing pixels]', fontsize='small')
 
 
-    samples = model.X.q_mu.detach()
+    # samples = model.X.q_mu.detach()
     
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    fig.suptitle('Reconstructions')
-    k = 10
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(model(samples[[k], :]).loc[:, 0].detach().reshape(28, 28).cpu())
-            axs[i, j].axis('off')
+    # plt.style.use('seaborn-deep')
+    # fig, axs = plt.subplots(3, 7)
+    # fig.suptitle('Reconstructions')
+    # k = 10
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(model(samples[[k], :]).loc[:, 0].detach().reshape(28, 28).cpu())
+    #         axs[i, j].axis('off')
 
-    plt.style.use('seaborn-deep')
-    fig, axs = plt.subplots(3, 7)
-    #fig.suptitle('Training digits')
-    k = 1
-    for i in range(3):
-        for j in range(7):
-            k += 1
-            axs[i, j].imshow(Y_missing[k].reshape(28, 28).cpu())
-            axs[i, j].axis('off')
+    # plt.style.use('seaborn-deep')
+    # fig, axs = plt.subplots(3, 7)
+    # #fig.suptitle('Training digits')
+    # k = 1
+    # for i in range(3):
+    #     for j in range(7):
+    #         k += 1
+    #         axs[i, j].imshow(Y_missing[k].reshape(28, 28).cpu())
+    #         axs[i, j].axis('off')
+    
+    # ################################
+            
+    ## 2) Test NLPD
+    from utils.metrics import *
+        
+    nlpd_test = test_nlpd(model, likelihood, X_test, Y_test_full.cuda(), model_name)
+   
+

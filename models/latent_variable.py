@@ -38,8 +38,10 @@ class PointLatentVariable(LatentVariable):
         super().__init__(n, latent_dim)
         self.register_parameter('X', X_init)
 
-    def forward(self):
-        return self.X
+    def forward(self, batch_idx=None):        
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+        return self.X[batch_idx, :]
     
     def reset(self, X_init_test):
         self.__init__(X_init_test)
@@ -50,11 +52,17 @@ class MAPLatentVariable(LatentVariable):
         n, latent_dim = X_init.shape
         super().__init__(n, latent_dim)
         self.prior_x = prior_x
+        
+        if torch.cuda.is_available():
+            self.prior_x = prior_x
+            
         self.register_parameter('X', X_init)
-        self.register_prior('prior_x', prior_x, 'X')
+        self.register_prior('prior_x', self.prior_x, 'X')
 
-    def forward(self):
-        return self.X
+    def forward(self, batch_idx=None):        
+        if batch_idx is None:
+            batch_idx = np.arange(self.n)
+        return self.X[batch_idx, :]
     
     def reset(self, X_init_test, prior_x_test):
         self.__init__(X_init_test, prior_x_test)
@@ -72,6 +80,10 @@ class NNEncoder(LatentVariable):
 
         jitter = torch.eye(latent_dim).unsqueeze(0)*1e-5
         self.jitter = torch.cat([jitter for i in range(n)], axis=0)
+        
+        #if torch.cuda.is_available():
+            
+        #    self.jitter = self.jitter.cuda()
 
     def _get_mu_layers(self, layers):
         return (self.data_dim,) + layers + (self.latent_dim,)
@@ -113,7 +125,7 @@ class NNEncoder(LatentVariable):
 
         sg = sg.reshape(len(sg), self.latent_dim, self.latent_dim)
         sg = torch.einsum('aij,akj->aik', sg, sg)
-        return sg + self.jitter
+        return sg + self.jitter[0:sg.shape[0],:,:]
 
     def forward(self, Y, batch_idx=None):
         mu = self.mu(Y)
@@ -147,13 +159,13 @@ class VariationalLatentVariable(LatentVariable):
         # after initializing on the CPU
 
         # Local variational params per latent point with dimensionality latent_dim
-        self.q_mu = torch.nn.Parameter(X_init.cuda()) # (.cuda())
-        self.q_log_sigma = torch.nn.Parameter(torch.randn(n, latent_dim).cuda())    # .cuda()
+        self.q_mu = torch.nn.Parameter(X_init) # (.cuda())
+        self.q_log_sigma = torch.nn.Parameter(torch.randn(n, latent_dim))    # .cuda()
         
-        if torch.cuda.is_available():
-            
-            self.q_mu = self.q_mu.cuda()
-            self.q_log_sigma = self.q_log_sigma.cuda()
+        #if torch.cuda.is_available():
+        #    
+        #    self.q_mu = self.q_mu.cuda()
+        #    self.q_log_sigma = self.q_log_sigma.cuda()
         
         # This will add the KL divergence KL(q(X) || p(X)) to the loss
         self.register_added_loss_term("x_kl")

@@ -67,22 +67,22 @@ class OilFlowModel(BayesianGPLVM):
 if __name__ == '__main__':
     
     TEST = True
-    increment = np.random.randint(0,100,3)
+    increment = np.random.randint(0,100,5)
 
 model_dict = {}
 noise_trace_dict = {}
 
-for _ in range(1):
+for k in range(4):
     
-    SEED = 7 + increment[_]
+    SEED = 7 + increment[k]
     torch.manual_seed(SEED)
 
     # Load some data
     
     N, d, q, X, Y, labels = load_real_data('oilflow')
     
-    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
-    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=0.2, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=0.2, random_state=SEED)
     
     Y_train = torch.Tensor(Y_train)
     Y_test = torch.Tensor(Y_test)
@@ -90,14 +90,15 @@ for _ in range(1):
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 12
+    latent_dim = 10
     n_inducing = 25
     pca = False
     
     # Run all 4 models and store results
     
-    models = ['point','map','gauss', 'nn_gauss']
-    steps = [60000, 60000, 60000, 60000]
+    #models = ['point','map','gauss', 'nn_gauss']
+    models = ['gauss']
+    steps = [20000, 20000, 20000, 20000]
     steps_per_model = dict(zip(models, steps))
     
     for model_name in models:
@@ -147,6 +148,7 @@ for _ in range(1):
             prior_x_test = MultivariateNormalPrior(X_prior_mean_test, torch.eye(X_prior_mean.shape[1]))
             X = NNEncoder(N, latent_dim, prior_x, data_dim, layers=nn_layers)
             
+            
         # Initialise model, likelihood, elbo and optimizer
         
         model = OilFlowModel(N, data_dim, latent_dim, n_inducing, X, nn_layers=nn_layers)
@@ -161,14 +163,28 @@ for _ in range(1):
         # Model params
         print(f'Training model params for model {model_name}')
         model.get_trainable_param_names()
-    
+        
+        #### Transfer on to GPU if available
+        
+        # if torch.cuda.is_available():
+        #     device = 'cuda'
+        #     model = model.cuda()
+        #     likelihood = likelihood.cuda()
+        #     Y_train = Y_train.cuda()
+        #     Y_test = Y_test.cuda()
+        # else:
+        #     device = 'cpu'
+
+        # print('The device is ' + device)
+            
         # Training loop - optimises the objective wrt kernel hypers, variational params and inducing inputs
         # using the optimizer provided.
         
         loss_list = []
         noise_trace = []
         
-        iterator = trange(steps_per_model[model_name], leave=True)
+        #iterator = trange(steps_per_model[model_name], leave=True)
+        iterator = trange(600)
         batch_size = 100
         for i in iterator: 
             batch_index = model._get_batch_idx(batch_size)
@@ -189,25 +205,25 @@ for _ in range(1):
             
         # Save models & training info
         
-        print(model.covar_module.base_kernel.lengthscale)
-        model_dict[model_name + '_' + str(SEED)] = model
-        noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
+        #print(model.covar_module.base_kernel.lengthscale)
+        #model_dict[model_name + '_' + str(SEED)] = model
+        #noise_trace_dict[model_name + '_' + str(SEED)] = noise_trace
         
         ### Saving training report
         
-        from utils.visualisation import *
+        # from utils.visualisation import *
         
         X_train_mean = model.get_X_mean(Y_train)
         X_train_scales = model.get_X_scales(Y_train)
         
-        plot_report(model, loss_list, lb_train, colors=['r', 'b', 'g'], save=f'oilflow_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
+        #plot_report(model, loss_list, lb_train, colors=['r', 'b', 'g'], save=f'oilflow_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
         
-        #### Saving model with seed 
-        print(f'Saving {model_name} {SEED}')
+        # #### Saving model with seed 
+        # print(f'Saving {model_name} {SEED}')
         
-        filename = f'oilflow_{model_name}_{SEED}.pkl'
-        with open(f'pre_trained_models/{filename}', 'wb') as file:
-            pkl.dump(model.state_dict(), file)
+        # filename = f'oilflow_{model_name}_{SEED}_trained.pkl'
+        # with open(f'pre_trained_models/oilflow/{filename}', 'wb') as file:
+        #     pkl.dump(model.state_dict(), file)
 
         ####################### Testing Framework ################################################
         if TEST:
@@ -217,53 +233,84 @@ for _ in range(1):
                 likelihood.eval()
             
             if ae is True:
-                if model_name != 'iaf':
-                    X_test_mean, X_test_covar = model.predict_latent(Y_train, 
-                                                                      Y_test, 
-                                                                      optimizer.defaults['lr'], 
-                                                                      likelihood, 
-                                                                      SEED,
-                                                                      prior_x=prior_x_test, 
-                                                                      ae=True, 
-                                                                      model_name='nn_gauss', 
-                                                                      pca=pca)
-                else:
-                    X_test_mean, X_flow_samples = model.predict_latent(Y_train, 
-                                                                        Y_test, 
-                                                                        optimizer.defaults['lr'], 
-                                                                        likelihood, 
-                                                                        prior_x = prior_x,
-                                                                        ae=True, 
-                                                                        model_name='iaf',
-                                                                        pca=pca)
+                X_test_mean, X_test_covar = model.predict_latent(Y_train, 
+                                                                  Y_test, 
+                                                                  optimizer.defaults['lr'], 
+                                                                  likelihood, 
+                                                                  SEED,
+                                                                  prior_x=prior_x_test, 
+                                                                  ae=True, 
+                                                                  model_name='nn_gauss', 
+                                                                  pca=pca)
+             
             
             else: # either point, map or gauss
                 losses_test,  X_test = model.predict_latent(Y_train, Y_test, optimizer.defaults['lr'], 
-                                          likelihood, SEED, prior_x=prior_x_test, ae=ae, 
-                                          model_name=model_name,pca=pca)
+                                              likelihood, SEED, prior_x=prior_x_test, ae=ae, 
+                                              model_name=model_name,pca=pca)
                     
             
             # Compute training and test reconstructions
             if model_name in ('point', 'map'):
                     X_test_mean = X_test.X
             elif model_name == 'gauss':
-                   X_test_mean = X_test.q_mu.detach().numpy()
+                   X_test_mean = X_test.q_mu.detach().cpu()
        
             Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
             Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
             
             # ################################
             # Compute the metrics:
-                
+            ##################################
+            
             from utils.metrics import *
             
             # 1) Reconstruction error - Train & Test
             
-            mse_train = rmse(Y_train, Y_train_recon.T)
-            mse_test = rmse(Y_test, Y_test_recon.T)
+            rmse_train = rmse(Y_train, Y_train_recon.T)
+            rmse_test = rmse(Y_test, Y_test_recon.T)
             
-            print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
-            print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+            print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
+            print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
+            
+            # 2) Test NLPD
+            
+            if model_name in ['point', 'map']:
+                
+                preds_f_star = model(X_test.X)
+                preds_y_star = likelihood(preds_f_star)
+                nlpd_test = -preds_y_star.log_prob(Y_test.T).sum()/len(Y_test)
+                
+            elif model_name in ['gauss']:
+                
+                nlpds = []
+                for i in range(100):
+                    
+                    X_test_sample_per_point =  X_test.forward()
+                    preds_f_star = model(X_test_sample_per_point)
+                    preds_y_star = likelihood(preds_f_star)
+                    nlpd_sample = -preds_y_star.log_prob(Y_test.T).sum()/len(Y_test)
+                    nlpds.append(nlpd_sample)
+                
+                nlpds = [x.cpu().detach().item() for x in nlpds]
+                nlpd_test = np.mean(nlpds)
+                
+            elif model_name in ['nn_gauss']:
+                
+                gaussian = torch.distributions.MultivariateNormal(X_test_mean, X_test_covar)
+                nlpds = []
+                for i in range(100):
+                    
+                    X_test_sample_per_point =  gaussian.rsample()
+                    preds_f_star = model(X_test_sample_per_point)
+                    preds_y_star = likelihood(preds_f_star)
+                    nlpd_sample = -preds_y_star.log_prob(Y_test.T).sum()/len(Y_test)
+                    nlpds.append(nlpd_sample)
+                
+                nlpds = [x.cpu().detach().item() for x in nlpds]
+                nlpd_test = np.mean(nlpds)
+                
+            print(f'Test NLPD {model_name} = ' + str(nlpd_test))
     
     
     

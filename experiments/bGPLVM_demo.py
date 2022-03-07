@@ -23,7 +23,6 @@ from gpytorch.variational import VariationalStrategy
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from gpytorch.distributions import MultivariateNormal
-from models.likelihoods import GaussianLikelihoodWithMissingObs
 
 def _init_pca(Y, latent_dim):
     U, S, V = torch.pca_lowrank(Y, q = latent_dim)
@@ -60,7 +59,7 @@ class My_GPLVM_Model(BayesianGPLVM):
             X = NNEncoder(n, latent_dim, prior_x, data_dim, layers=nn_layers)
         else:
             prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
-            X = VariationalLatentVariable(self.n, data_dim, latent_dim, X_init, prior_x)
+            X = VariationalLatentVariable(X_init, prior_x, self.batch_shape)
             #X = PointLatentVariable(X_init)
 
         
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     pca = False
       
     # Model
-    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=(10,5))
+    model = My_GPLVM_Model(N, data_dim, latent_dim, n_inducing, pca=pca, nn_layers=None)
     
     # Likelihood
     likelihood = GaussianLikelihood()
@@ -128,7 +127,7 @@ if __name__ == '__main__':
     # using the optimizer provided.
     
     loss_list = []
-    iterator = trange(5000, leave=True)
+    iterator = trange(1000, leave=True)
     batch_size = 100
     for i in iterator: 
         batch_index = model._get_batch_idx(batch_size)

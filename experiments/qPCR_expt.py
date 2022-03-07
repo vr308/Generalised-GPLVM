@@ -82,23 +82,23 @@ if __name__ == '__main__':
     
     
     TEST = True
-    increment = np.random.randint(0,100,3)
+    increment = np.random.randint(0,100,5)
 
 model_dict = {}
 noise_trace_dict = {}
 
 for j in range(1):
     
-    SEED = 7 + increment[j]
+    SEED = 71 + increment[j]
     torch.manual_seed(SEED)
 
     # Load some data
     
     N, d, q, X, Y, labels = load_real_data('gene')
     
-    Y_train, Y_test = train_test_split(Y.numpy(), test_size=50, random_state=SEED)
-    lb_train, lb_test = train_test_split(labels, test_size=50, random_state=SEED)
-    pseudo_train, pseudo_test = train_test_split(get_pseudotime(), test_size=50, random_state=SEED)
+    Y_train, Y_test = train_test_split(Y.numpy(), test_size=.2, random_state=SEED)
+    lb_train, lb_test = train_test_split(labels, test_size=.2, random_state=SEED)
+    pseudo_train, pseudo_test = train_test_split(get_pseudotime(), test_size=.2, random_state=SEED)
     
     Y_train = torch.Tensor(Y_train)
     Y_test = torch.Tensor(Y_test)
@@ -106,14 +106,15 @@ for j in range(1):
     # Setting shapes
     N = len(Y_train)
     data_dim = Y_train.shape[1]
-    latent_dim = 11
+    latent_dim = 15
     n_inducing = 40
     pca = False
     
     # Run all 4 models and store results
     
-    models = ['point','map','gauss', 'nn_gauss']
-    steps = [20000,40000, 40000, 40000]
+    #models = ['point','map','gauss', 'nn_gauss']
+    models = ['gauss']
+    steps = [5000,20000, 60000, 40000]
     steps_per_model = dict(zip(models, steps))
     
     for model_name in models:
@@ -176,7 +177,7 @@ for j in range(1):
         optimizer = torch.optim.Adam([
         {'params': model.parameters()},
         {'params': likelihood.parameters()}
-        ], lr=0.001)
+        ], lr=0.005)
     
         # Model params
         print(f'Training model params for model {model_name}')
@@ -216,19 +217,19 @@ for j in range(1):
         
         ### Saving training report
         
-        from utils.visualisation import *
+        # from utils.visualisation import *
         
         X_train_mean = model.get_X_mean(Y_train)
         X_train_scales = model.get_X_scales(Y_train)
         
         plot_report(model, loss_list, lb_train, colors=plt.get_cmap("tab10").colors[::-1], save=f'gene_{model_name}_{SEED}', X_mean=X_train_mean, X_scales=X_train_scales, model_name=model.X.__class__.__name__)
         
-        #### Saving model with seed 
-        print(f'Saving {model_name} {SEED}')
+        # #### Saving model with seed 
+        # print(f'Saving {model_name} {SEED}')
         
-        filename = f'qPCR_{model_name}_{SEED}.pkl'
-        with open(f'pre_trained_models/{filename}', 'wb') as file:
-            pkl.dump(model.state_dict(), file)
+        # filename = f'qPCR_{model_name}_{SEED}.pkl'
+        # with open(f'pre_trained_models/{filename}', 'wb') as file:
+        #     pkl.dump(model.state_dict(), file)
 
         ####################### Testing Framework ################################################
         if TEST:
@@ -259,6 +260,8 @@ for j in range(1):
                     X_test_mean = X_test.X
             elif model_name == 'gauss':
                    X_test_mean = X_test.q_mu.detach().numpy()
+            elif model_name == 'nn_gauss':
+                    X_test = torch.distributions.MultivariateNormal(X_test_mean, X_test_covar)
        
             Y_test_recon, Y_test_pred_covar = model.reconstruct_y(torch.Tensor(X_test_mean), Y_test, ae=ae, model_name=model_name)
             Y_train_recon, Y_train_pred_covar = model.reconstruct_y(torch.Tensor(X_train_mean), Y_train, ae=ae, model_name=model_name)
@@ -274,6 +277,12 @@ for j in range(1):
             
             print(f'Train Reconstruction error {model_name} = ' + str(mse_train))
             print(f'Test Reconstruction error {model_name} = ' + str(mse_test))
+            
+            # ################################
+            
+            ## 2) Test NLPD
+            
+            nlpd_test = test_nlpd(model, likelihood, X_test, Y_test, model_name)
             
     
  

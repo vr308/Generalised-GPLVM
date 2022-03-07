@@ -104,7 +104,7 @@ class BayesianGPLVM(ApproximateGP):
             # Train for test X variational params
             
             # The idea here is to initialise a new test model but import all the trained 
-            # params from the training model. The variational params of the training data dont affect 
+            # params from the training model. The variational params of the training data
             # do not affect the test data.
             
             # Initialise test model at training params

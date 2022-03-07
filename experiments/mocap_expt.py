@@ -7,7 +7,7 @@ plt.ion(); plt.style.use('ggplot')
 
 import pickle as pkl
 from models.bayesianGPLVM import BayesianGPLVM
-from models.latent_variable import VariationalLatentVariable
+from models.latent_variable import VariationalLatentVariable, PointLatentVariable, MAPLatentVariable
 from models.likelihoods import GaussianLikelihoodWithMissingObs
 from utils.metrics import *
 
@@ -32,6 +32,8 @@ class GPLVM(BayesianGPLVM):
         X_prior_mean = torch.zeros(n, latent_dim)
         prior_x = NormalPrior(X_prior_mean, torch.ones_like(X_prior_mean))
         X = VariationalLatentVariable(X_prior_mean, prior_x, data_dim)
+        #X = PointLatentVariable(torch.nn.Parameter(X_prior_mean))
+        #X = MAPLatentVariable(torch.nn.Parameter(X_prior_mean), prior_x)
 
         super(GPLVM, self).__init__(X, q_f)
 
@@ -164,10 +166,12 @@ if __name__ == '__main__':
     device = 'cpu'
 
     Y = torch.tensor(Y, device=device)
-    losses = train(model, likelihood, Y, steps=150, batch_size=200)
+    losses = train(model, likelihood, Y, steps=15, batch_size=200)
+    
+    model_name = 'gauss'
 
-    if os.path.isfile('pre_trained_models/mocap_cpu_diff_motions.pkl'):
-        with open('pre_trained_models/mocap_cpu_diff_motions.pkl', 'rb') as file:
+    if os.path.isfile('pre_trained_models/mocap/mocap_cpu_diff_motions_VLV.pkl'):
+        with open('pre_trained_models/mocap/mocap_cpu_diff_motions_VLV.pkl', 'rb') as file:
             model_sd, likl_sd = pkl.load(file)
             model.load_state_dict(model_sd)
             likelihood.load_state_dict(likl_sd)
@@ -175,7 +179,8 @@ if __name__ == '__main__':
     # with open('for_paper/mocap_cpu_diff_motions.pkl', 'wb') as file:
     #    pkl.dump((model.cpu().state_dict(), likelihood.cpu().state_dict()), file)
 
-    Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
+    #Y_recon = model(model.X.q_mu).loc.T.detach().cpu()
+    #Y_recon = model(model.X).detach().cpu()
 
     # fig = plt.figure(figsize=(8,3))
     # plot_skeleton(fig, 132, Y_full[0, :], {1, 14, 18}, True)    
@@ -196,18 +201,18 @@ if __name__ == '__main__':
     # plot_skeleton(Y_full[205, :])
     # plt.title('Data without missing values')
 
-    plt.ioff()
-    for i in range(n):
-        fig = plt.figure(figsize=(7,2.5))
-        plot_skeleton(fig, 132, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
-        plt.title('Training Data: ' + str(lb[i]), fontsize='small')
-        plot_skeleton(fig, 133, Y_recon[i, :])
-        plt.title('Reconstruction: ' + str(lb[i]), fontsize='small')
-        plot_skeleton(fig, 131, Y_full[i, :])
-        plt.title('Ground Truth: ' + str(lb[i]), fontsize='small')
-        plt.tight_layout()
-        plt.savefig('train_mocap_img/' + f'{i:03d}' + '.png')
-        plt.close()
+    # plt.ioff()
+    # for i in range(n):
+    #     fig = plt.figure(figsize=(7,2.5))
+    #     plot_skeleton(fig, 132, Y_full[i, :], sets_for_removal[(lb[i]+1) % 4], True)
+    #     plt.title('Training Data: ' + str(lb[i]), fontsize='small')
+    #     plot_skeleton(fig, 133, Y_recon[i, :])
+    #     plt.title('Reconstruction: ' + str(lb[i]), fontsize='small')
+    #     plot_skeleton(fig, 131, Y_full[i, :])
+    #     plt.title('Ground Truth: ' + str(lb[i]), fontsize='small')
+    #     plt.tight_layout()
+    #     plt.savefig('train_mocap_img/' + f'{i:03d}' + '.png')
+    #     plt.close()
 
     # # scp -r aditya@192.168.1.154:~/gplvf/img/ . && cd img
     # # convert -delay 10 -loop 0 *.png plot.gif && rm *.png
@@ -216,42 +221,58 @@ if __name__ == '__main__':
     Y_test_full[:, 0:3] = 0.0
     Y_test = Y_test_full.clone()
     n_test = len(Y_test)
+    
+    #### Testing framework 
+    
+    with torch.no_grad():
+        
+        model.eval()
+        likelihood.eval()
+             
+        remove_idx = list(get_y_dims_to_nullify(get_all_missing_verts({1, 14, 18}, True)))
+        Y_test[:, remove_idx] = np.nan
+        
+        prior_x_test = NormalPrior(torch.zeros(n_test, q), torch.ones(n_test, q))
+        #prior_x_test = None
+        
+        losses_test, X_test = model.cpu().predict_latent(Y.cpu(), Y_test,
+            lr=0.01, likelihood=likelihood.cpu(), seed=1,
+            prior_x=prior_x_test,
+            ae=False, model_name='gauss', pca=False, steps=10000)
 
-    remove_idx = list(get_y_dims_to_nullify(get_all_missing_verts({1, 14, 18}, True)))
-    Y_test[:, remove_idx] = np.nan
+    #Y_test_recon = model(X_test.q_mu).loc.T.detach().cpu()
+    # np.save('y_test_recon.npy', Y_test_recon)
 
-    losses_test, X_test = model.cpu().predict_latent(Y.cpu(), Y_test,
-        lr=0.005, likelihood=likelihood.cpu(), seed=1,
-        prior_x=NormalPrior(torch.zeros(n_test, q), torch.ones(n_test, q)),
-        ae=False, model_name='gauss', pca=False, steps=40000)
-
-    Y_test_recon = model(X_test.q_mu).loc.T.detach().cpu()
-    np.save('y_test_recon.npy', Y_test_recon)
-
-    plt.ioff()
-    for i in range(len(Y_test_recon)):
-        fig = plt.figure(figsize=(7,2.5))
-        plot_skeleton(fig, 132, Y_test_full[i, :], {1, 14, 18}, True)
-        plt.title('Test Data', fontsize='small')
-        plot_skeleton(fig, 133, Y_test_recon[i, :])
-        plt.title('Reconstruction', fontsize='small')
-        plot_skeleton(fig, 131, Y_test_full[i, :])
-        plt.title('Ground Truth', fontsize='small')
-        plt.tight_layout()
-        plt.savefig('test_mocap_img/' + f'{i:03d}' + '.png')
-        plt.close()
+    # plt.ioff()
+    # for i in range(len(Y_test_recon)):
+    #     fig = plt.figure(figsize=(7,2.5))
+    #     plot_skeleton(fig, 132, Y_test_full[i, :], {1, 14, 18}, True)
+    #     plt.title('Test Data', fontsize='small')
+    #     plot_skeleton(fig, 133, Y_test_recon[i, :])
+    #     plt.title('Reconstruction', fontsize='small')
+    #     plot_skeleton(fig, 131, Y_test_full[i, :])
+    #     plt.title('Ground Truth', fontsize='small')
+    #     plt.tight_layout()
+    #     plt.savefig('test_mocap_img/' + f'{i:03d}' + '.png')
+    #     plt.close()
         
  
     # ################################
     # Compute the metrics:
         
-    from utils.metrics import *
+    # from utils.metrics import *
     
-    # 1) Reconstruction error - Train & Test
+    # # 1) Reconstruction error - Train & Test
     
-    rmse_train = rmse_missing(Y, Y_recon)
-    rmse_test = rmse_missing(Y_test, Y_test_recon)
+    # rmse_train = rmse_missing(Y, Y_recon)
+    # rmse_test = rmse_missing(Y_test, Y_test_recon)
     
-    print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
-    print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
+    # print(f'Train Reconstruction error {model_name} = ' + str(rmse_train))
+    # print(f'Test Reconstruction error {model_name} = ' + str(rmse_test))
+    
+    # ################################
+            
+    ## 2) Test NLPD
+    
+    nlpd_test = test_nlpd(model, likelihood, X_test, Y_test_full, model_name)
    
